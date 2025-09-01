@@ -1,0 +1,11 @@
+# PostgreSQL adapter
+psycopg2-binary==2.9.9
+
+# CLI framework
+click==8.1.7
+
+# Data processing
+numpy==1.26.4
+
+# JSON handling
+jsonschema==4.20.0

@@ -1,147 +1,116 @@
+# Centralized Docker Compose for Real-time LLM Ingestion Architecture
+# Imports configurations from individual service directories
+
+# Import configurations from other directories
 services:
-  # Embedding Generation Service
-  embedding-service:
-    build: 
-      context: ../embedding_gen_svc
-      dockerfile: Dockerfile
-    container_name: embedding-generation-service
-    ports:
-      - "5000:5000"
-    environment:
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - ../embedding_gen_svc/config.yaml:/app/config.yaml:ro
-      - embedding-logs:/app/logs
-    depends_on:
-      - kafka
-    networks:
-      - real-time-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # Kafka Infrastructure
-  kafka:
-    image: confluentinc/cp-kafka:7.4.0
-    hostname: kafka
-    container_name: real-time-kafka
-    ports:
-      - "9092:9092"
-      - "9101:9101"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_JMX_PORT: 9101
-      KAFKA_JMX_HOSTNAME: localhost
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-    volumes:
-      - kafka-data:/var/lib/kafka/data
-    networks:
-      - real-time-network
-    depends_on:
-      - zookeeper
-    restart: unless-stopped
-
+  # Kafka infrastructure (imported from kafka directory)
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    hostname: zookeeper
-    container_name: real-time-zookeeper
-    ports:
-      - "2181:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    volumes:
-      - zookeeper-data:/var/lib/zookeeper/data
-      - zookeeper-logs:/var/lib/zookeeper/log
-    networks:
-      - real-time-network
-    restart: unless-stopped
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: zookeeper
 
-  # Kafka Management UI
+  kafka:
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: kafka
+
   kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: real-time-kafka-ui
-    depends_on:
-      - kafka
-    ports:
-      - "8080:8080"
-    environment:
-      KAFKA_CLUSTERS_0_NAME: real-time-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
-    networks:
-      - real-time-network
-    restart: unless-stopped
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: kafka-ui
 
-  # Schema Registry (for future use)
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.4.0
-    hostname: schema-registry
-    container_name: real-time-schema-registry
-    depends_on:
-      - kafka
-    ports:
-      - "8081:8081"
-    environment:
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:29092'
-      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
-    networks:
-      - real-time-network
-    restart: unless-stopped
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: schema-registry
 
-  # Kafka Connect (for future data integration)
   kafka-connect:
-    image: confluentinc/cp-kafka-connect:7.4.0
-    hostname: kafka-connect
-    container_name: real-time-kafka-connect
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: kafka-connect
+
+  # Embedding service (imported from embedding_gen_svc directory)
+  embedding-service:
+    extends:
+      file: ../embedding_gen_svc/docker-compose.yml
+      service: embedding-service
     depends_on:
       - kafka
       - schema-registry
-    ports:
-      - "8083:8083"
-    environment:
-      CONNECT_BOOTSTRAP_SERVERS: 'kafka:29092'
-      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
-      CONNECT_REST_PORT: 8083
-      CONNECT_GROUP_ID: real-time-connect-group
-      CONNECT_CONFIG_STORAGE_TOPIC: real-time-connect-configs
-      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
-      CONNECT_OFFSET_STORAGE_TOPIC: real-time-connect-offsets
-      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_STATUS_STORAGE_TOPIC: real-time-connect-status
-      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
-      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
-      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
-      CONNECT_LOG4J_LOGGERS: org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
-    networks:
-      - real-time-network
-    restart: unless-stopped
 
+  # Writer service (imported from writer_svc directory)
+  writer-service:
+    extends:
+      file: ../writer_svc/docker-compose.yml
+      service: writer-service
+    depends_on:
+      - kafka
+      - embedding-service
+    environment:
+      - DATABASE_TYPE=${DATABASE_TYPE:-lancedb}
+
+  # Database services (conditional based on DATABASE_TYPE)
+  postgres:
+    extends:
+      file: ../pgvector/docker-compose.yml
+      service: postgres
+    depends_on:
+      - kafka
+    profiles:
+      - postgres
+
+  pgadmin:
+    extends:
+      file: ../pgvector/docker-compose.yml
+      service: pgadmin
+    depends_on:
+      - postgres
+    profiles:
+      - postgres
+
+  lancedb-env:
+    extends:
+      file: ../lancedb/docker-compose.yml
+      service: lancedb-env
+    depends_on:
+      - kafka
+    profiles:
+      - lancedb
+    volumes:
+      - lancedb-data:/data
+      - ../lancedb:/app
+
+# Import all volumes from other compose files
 volumes:
-  kafka-data:
-    driver: local
+  # Kafka volumes
   zookeeper-data:
     driver: local
   zookeeper-logs:
     driver: local
+  kafka-data:
+    driver: local
+  
+  # Embedding service volumes
   embedding-logs:
     driver: local
+  
+  # Writer service volumes
+  writer-logs:
+    driver: local
+  lancedb-data:
+    driver: local
+  
+  # PostgreSQL volumes
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
 
+# Import all networks from other compose files
 networks:
-  real-time-network:
+  kafka-network:
+    driver: bridge
+  pgvector-network:
+    driver: bridge
+  lancedb-network:
     driver: bridge

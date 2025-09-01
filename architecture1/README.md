@@ -1,303 +1,174 @@
-# Real-Time LLM Ingestion Architecture
+# Real-time LLM Ingestion Architecture
 
-This directory contains the centralized orchestration for the real-time LLM ingestion system using Docker Compose.
+A centralized architecture for real-time LLM ingestion using Kafka, embedding generation, and flexible database storage.
 
-## Architecture Overview
+## 🚀 Quick Start
 
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Text Input    │───▶│  Kafka Cluster   │───▶│  Embedding      │
-│   (Kafka CLI)   │    │                  │    │  Generation     │
-└─────────────────┘    └──────────────────┘    │  Service        │
-                                               └─────────────────┘
-                                                        │
-                                                        ▼
-                                               ┌─────────────────┐
-                                               │  Embeddings     │
-                                               │  Output Topic   │
-                                               └─────────────────┘
-```
-
-## Services
-
-### Core Services
-
-1. **Embedding Generation Service** (`embedding-service`)
-   - **Port**: 5000
-   - **Purpose**: Reads text messages, generates embeddings using Hugging Face models
-   - **Health Check**: `http://localhost:5000/health`
-
-2. **Kafka Cluster** (`kafka`)
-   - **Port**: 9092 (external), 29092 (internal)
-   - **Purpose**: Message streaming and event processing
-   - **JMX Port**: 9101
-
-3. **Zookeeper** (`zookeeper`)
-   - **Port**: 2181
-   - **Purpose**: Kafka coordination and metadata management
-
-### Management & Monitoring
-
-4. **Kafka UI** (`kafka-ui`)
-   - **Port**: 8080
-   - **Purpose**: Web-based Kafka cluster management
-   - **URL**: `http://localhost:8080`
-
-5. **Schema Registry** (`schema-registry`)
-   - **Port**: 8081
-   - **Purpose**: Avro schema management (for future use)
-
-6. **Kafka Connect** (`kafka-connect`)
-   - **Port**: 8083
-   - **Purpose**: Data integration platform (for future use)
-
-## Quick Start
-
-### 1. Start All Services
-
+### Option 1: Using the Startup Script (Recommended)
 ```bash
-cd architecture1
-docker compose up -d
+# Start with LanceDB (default)
+./start.sh
+
+# Start with PostgreSQL
+DATABASE_TYPE=postgres ./start.sh
 ```
 
-### 2. Verify Services
-
+### Option 2: Using Docker Compose Directly
 ```bash
-# Check all services are running
-docker compose ps
+# Start with LanceDB
+docker compose --profile lancedb up -d
 
-# Check embedding service health
-curl http://localhost:5000/health
-
-# Access Kafka UI
-open http://localhost:8080
-```
-
-### 3. Test the System
-
-```bash
-# Send test messages (from kafka directory)
-cd ../kafka
-python kafka_cli.py write text-messages "Hello, this is a test message!"
-python kafka_cli.py write text-messages "Machine learning is fascinating!"
-
-# Check generated embeddings
-python kafka_cli.py read embeddings --max-messages 5
-```
-
-## Service Management
-
-### Start/Stop Services
-
-```bash
-# Start all services
-docker compose up -d
+# Start with PostgreSQL
+DATABASE_TYPE=postgres docker compose --profile postgres up -d
 
 # Stop all services
 docker compose down
-
-# Stop and remove volumes (WARNING: deletes all data)
-docker compose down -v
-
-# View logs
-docker compose logs -f embedding-service
-docker compose logs -f kafka
 ```
 
-### Individual Service Control
+## 🏗️ Architecture Overview
 
-```bash
-# Start only specific services
-docker compose up -d kafka zookeeper
+This architecture orchestrates multiple services using a centralized `docker-compose.yml` that imports configurations from individual service directories:
 
-# Restart a service
-docker compose restart embedding-service
+- **Kafka Infrastructure**: Message broker, Zookeeper, Schema Registry, Kafka Connect, Kafka UI
+- **Embedding Service**: Generates embeddings from text using Hugging Face models
+- **Writer Service**: Writes embeddings to configured database (LanceDB or PostgreSQL)
+- **Database Layer**: Flexible storage with LanceDB (file-based) or PostgreSQL + pgvector
 
-# Scale a service (if supported)
-docker compose up -d --scale embedding-service=2
+## 📁 Directory Structure
+
+```
+architecture1/
+├── docker-compose.yml          # Centralized orchestration
+├── start.sh                    # Easy startup script
+├── README.md                   # This file
+└── Tiltfile                    # Legacy Tilt configuration (not used)
+
+kafka/                          # Kafka cluster configuration
+embedding_gen_svc/             # Embedding generation service
+writer_svc/                     # Writer service with database adapters
+pgvector/                       # PostgreSQL + pgvector setup
+lancedb/                        # LanceDB configuration
 ```
 
-## Configuration
+## 🔧 Configuration
 
 ### Environment Variables
+- `DATABASE_TYPE`: Choose database (`lancedb` or `postgres`)
 
-Services can be configured through environment variables in the docker compose.yml file:
+### Service Ports
+- **Kafka**: 9092
+- **Kafka UI**: 8080
+- **Schema Registry**: 8081
+- **Kafka Connect**: 8083
+- **Embedding Service**: 5000
+- **Writer Service**: 5001
+- **PostgreSQL**: 5432
+- **pgAdmin**: 8080 (conflicts with Kafka UI - use different port)
 
-- **KAFKA_AUTO_CREATE_TOPICS_ENABLE**: Auto-create topics (default: true)
-- **KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR**: Replication factor (default: 1)
-- **PYTHONUNBUFFERED**: Python output buffering (default: 1)
+## 🚦 Service Management
 
-### Service Configuration
-
-- **Embedding Service**: Configured via `../embedding_gen_svc/config.yaml`
-- **Kafka**: Configured via environment variables in docker compose.yml
-- **Kafka UI**: Configured via environment variables
-
-## Monitoring & Debugging
-
-### Health Checks
-
+### Start Services
 ```bash
-# Embedding service health
-curl http://localhost:5000/health
+# All services
+docker compose up -d
 
-# Service statistics
-curl http://localhost:5000/stats
-
-# Service configuration
-curl http://localhost:5000/config
+# Specific profile
+docker compose --profile postgres up -d
+docker compose --profile lancedb up -d
 ```
 
-### Logs
-
+### Check Status
 ```bash
-# View all logs
-docker compose logs
+# Service status
+docker compose ps
 
-# Follow specific service logs
-docker compose logs -f embedding-service
+# Service logs
+docker compose logs -f <service-name>
 docker compose logs -f kafka
-
-# View last 100 lines
-docker compose logs --tail=100 embedding-service
+docker compose logs -f embedding-service
 ```
 
-### Kafka Management
-
+### Stop Services
 ```bash
-# List topics
-docker exec real-time-kafka kafka-topics --list --bootstrap-server localhost:9092
+# Stop all
+docker compose down
 
-# Create topic manually
-docker exec real-time-kafka kafka-topics --create --topic my-topic --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
-
-# Describe topic
-docker exec real-time-kafka kafka-topics --describe --topic text-messages --bootstrap-server localhost:9092
+# Stop specific services
+docker compose stop kafka embedding-service
 ```
 
-## Data Flow
+## 🔄 Service Dependencies
 
-### Input Topics
-- **text-messages**: Raw text input for embedding generation
+The architecture ensures proper startup order:
+1. **Kafka Infrastructure** (Zookeeper, Kafka, Schema Registry)
+2. **Embedding Service** (waits for Kafka)
+3. **Writer Service** (waits for embedding service)
+4. **Database** (waits for Kafka)
 
-### Output Topics
-- **embeddings**: Generated embeddings with metadata
+## 🧪 Testing & Operations
 
-### Message Formats
-
-**Input Message (text-messages topic):**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "text": "This is the text to embed",
-  "timestamp": 1699123456.789,
-  "source": "kafka-cli"
-}
+### Create Kafka Topics
+```bash
+cd ../kafka
+python kafka_cli.py create-topic text-messages
+python kafka_cli.py create-topic embeddings
 ```
 
-**Output Message (embeddings topic):**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "original_text": "This is the text to embed",
-  "embedding": [0.1, 0.2, 0.3, ...],
-  "model_name": "sentence-transformers/all-MiniLM-L6-v2",
-  "timestamp": 1699123456.789,
-  "embedding_dimension": 384,
-  "processing_timestamp": 1699123457.123,
-  "input_timestamp": 1699123456.789,
-  "input_source": "kafka-cli"
-}
+### Send Test Messages
+```bash
+cd ../kafka
+python kafka_cli.py write text-messages "Test message for embedding generation"
 ```
 
-## Development
-
-### Adding New Services
-
-1. Create service directory in the project root
-2. Add service definition to `docker compose.yml`
-3. Configure networking and dependencies
-4. Update this README
-
-### Service Dependencies
-
-```
-zookeeper → kafka → schema-registry → kafka-connect
-     ↓
-   kafka-ui
-     ↓
-embedding-service
+### Check Embeddings
+```bash
+cd ../kafka
+python kafka_cli.py read embeddings --max-messages 5
 ```
 
-### Network Configuration
+### Database Operations
+```bash
+# LanceDB
+cd ../lancedb
+python lancedb_cli.py list-tables
 
-All services run on the `real-time-network` bridge network, allowing:
-- Internal service communication
-- External access via exposed ports
-- Service discovery by hostname
+# PostgreSQL
+cd ../pgvector
+python pgvector_cli.py list-tables
+```
 
-## Troubleshooting
+## 🆘 Troubleshooting
 
 ### Common Issues
+1. **Port Conflicts**: Ensure ports are available (especially 8080)
+2. **Network Issues**: Services use shared `kafka-network`
+3. **Database Connection**: Check database credentials and connectivity
 
-1. **Port Conflicts**
-   - Ensure ports 5000, 8080, 8081, 8083, 9092, 2181 are available
-   - Check for other Docker containers using these ports
+### Debug Commands
+```bash
+# Check network
+docker network ls
+docker network inspect architecture1_kafka-network
 
-2. **Service Startup Failures**
-   - Check logs: `docker compose logs [service-name]`
-   - Verify dependencies are running
-   - Check resource availability (memory, disk space)
+# Check volumes
+docker volume ls
 
-3. **Kafka Connection Issues**
-   - Verify Kafka is running: `docker compose ps kafka`
-   - Check Kafka logs: `docker compose logs kafka`
-   - Verify network connectivity
+# Check logs
+docker compose logs -f
+```
 
-4. **Embedding Service Issues**
-   - Check model download: `docker compose logs embedding-service`
-   - Verify configuration: `curl http://localhost:5000/config`
-   - Check Kafka connectivity from service
+## 🔄 Migration from Tilt
 
-### Performance Tuning
+This architecture replaces the previous Tilt-based approach with:
+- **Simpler orchestration** using Docker Compose
+- **Better dependency management** with explicit `depends_on`
+- **Easier debugging** with standard Docker Compose commands
+- **Profile-based configuration** for different database types
 
-1. **Memory Allocation**
-   - Increase Docker memory limits
-   - Adjust JVM heap size for Kafka
-   - Monitor memory usage: `docker stats`
+## 📚 Next Steps
 
-2. **Storage Optimization**
-   - Use SSD storage for Kafka data
-   - Configure appropriate retention policies
-   - Monitor disk usage: `docker system df`
-
-3. **Network Optimization**
-   - Use host networking for high-throughput scenarios
-   - Configure appropriate batch sizes
-   - Monitor network usage: `docker stats`
-
-## Production Considerations
-
-### Security
-- Use secrets management for sensitive configuration
-- Enable TLS/SSL for Kafka communication
-- Implement authentication and authorization
-- Regular security updates
-
-### Scaling
-- Use multiple Kafka brokers for high availability
-- Implement horizontal scaling for embedding service
-- Use load balancers for external access
-- Monitor resource usage and scale accordingly
-
-### Monitoring
-- Implement comprehensive logging
-- Use monitoring tools (Prometheus, Grafana)
-- Set up alerting for service failures
-- Monitor message throughput and latency
-
-### Backup & Recovery
-- Regular backup of Kafka data
-- Configuration backup and version control
-- Disaster recovery procedures
-- Data retention policies
+1. **Start the architecture**: `./start.sh`
+2. **Create topics**: Use Kafka CLI to create required topics
+3. **Send test messages**: Verify the full pipeline
+4. **Monitor services**: Check logs and health endpoints
+5. **Scale as needed**: Add more services or modify configurations

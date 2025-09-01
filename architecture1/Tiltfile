@@ -1,0 +1,45 @@
+# Tiltfile for Real-time LLM Ingestion Architecture
+# Uses centralized docker-compose.yml for orchestration
+
+# Configuration - use environment variable (default to lancedb)
+database_type = "lancedb"
+
+print("Starting architecture with database: " + database_type)
+
+# Use the centralized docker-compose.yml
+docker_compose("docker-compose.yml")
+
+# Add helpful local resources for operations
+local_resource(
+    name="create-topics",
+    cmd="cd ../kafka && python kafka_cli.py create-topic text-messages && python kafka_cli.py create-topic embeddings",
+    deps=[],
+    ignore=["*.log"]
+)
+
+local_resource(
+    name="send-test-message",
+    cmd="cd ../kafka && python kafka_cli.py write text-messages 'Test message for embedding generation'",
+    deps=["create-topics"],
+    ignore=["*.log"]
+)
+
+local_resource(
+    name="read-embeddings",
+    cmd="cd ../kafka && python kafka_cli.py read embeddings --max-messages 5",
+    deps=["send-test-message"],
+    ignore=["*.log"]
+)
+
+local_resource(
+    name="health-check",
+    cmd="echo 'Checking service health...' && curl -f http://localhost:5000/health && echo 'Embedding service healthy'",
+    deps=[],
+    ignore=["*.log"]
+)
+
+print("✅ Architecture configured for lancedb database")
+print("📚 Use 'tilt up' to start all services")
+print("🔧 Use 'tilt trigger <resource-name>' to run specific operations")
+print("📊 Use 'tilt get uiresources' to see all available resources")
+print("💡 Use 'DATABASE_TYPE=postgres tilt up' to start with PostgreSQL")

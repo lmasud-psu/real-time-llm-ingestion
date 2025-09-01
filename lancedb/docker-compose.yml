@@ -1,0 +1,33 @@
+services:
+  lancedb-env:
+    image: python:3.11-slim
+    container_name: lancedb-env
+    ports:
+      - "9090:8080"
+    volumes:
+      - lancedb_data:/data
+      - ./:/app
+    working_dir: /app
+    environment:
+      - LANCEDB_DATA_DIR=/data
+    networks:
+      - lancedb-network
+    restart: unless-stopped
+    command: >
+      sh -c "pip install -r requirements.txt &&
+              echo 'LanceDB environment ready. Use the CLI tool to interact with it.' &&
+              tail -f /dev/null"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import lancedb; print('LanceDB ready')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  lancedb_data:
+    driver: local
+
+networks:
+  lancedb-network:
+    driver: bridge

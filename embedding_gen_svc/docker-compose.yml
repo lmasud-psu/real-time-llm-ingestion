@@ -1,0 +1,30 @@
+services:
+  embedding-service:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: embedding-generation-service
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - embedding-logs:/app/logs
+    networks:
+      - kafka-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  embedding-logs:
+    driver: local
+
+networks:
+  kafka-network:
+    external: true
