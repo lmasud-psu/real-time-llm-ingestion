@@ -4,21 +4,21 @@ Service that reads embeddings from Kafka and writes them to different databases 
 
 ## Quick Start
 
-Configure the database type and start the service.
+Configure the database type and start the service. The service automatically starts processing messages when launched.
 
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
 # Edit config.yaml to choose database (lancedb or postgres)
-# Start service
+# Start service (auto-starts message processing)
 python app.py
 ```
 
 ## Configuration
 
 Choose database type in `config.yaml`:
-
+./
 ```yaml
 database:
   type: "lancedb"  # or "postgres"
@@ -42,10 +42,12 @@ database:
 ```bash
 GET  /health    # Service health
 GET  /stats     # Processing statistics
-POST /start     # Start writer service
+POST /start     # Start writer service (if not running)
 POST /stop      # Stop writer service
 GET  /config    # Current configuration
 ```
+
+**Note**: The service automatically starts processing messages when launched. The `/start` endpoint is useful for restarting the service if it was stopped.
 
 ## How It Works
 

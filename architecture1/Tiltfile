@@ -1,13 +1,38 @@
 # Tiltfile for Real-time LLM Ingestion Architecture
-# Uses centralized docker-compose.yml for orchestration
+# Uses centralized docker-compose.yml with database-specific configurations
 
-# Configuration - use environment variable (default to lancedb)
-database_type = "lancedb"
+# Get the database type from environment variable, default to lancedb
+database_type = os.environ.get("DATABASE_TYPE", "lancedb").lower()
 
-print("Starting architecture with database: " + database_type)
+# Validate database type
+allowed_databases = ["lancedb", "postgres"]
+if database_type not in allowed_databases:
+    fail("❌ Invalid DATABASE_TYPE. Must be one of: " + ", ".join(allowed_databases))
 
-# Use the centralized docker-compose.yml
-docker_compose("docker-compose.yml")
+print("🔄 Starting architecture with database: " + database_type)
+
+# Load the base docker-compose.yml
+docker_compose_config = ["docker-compose.yml"]
+
+# Add database-specific configuration
+if database_type == "postgres":
+    docker_compose_config.append("docker-compose.postgres.yml")
+    print("📊 PostgreSQL configuration loaded")
+else:
+    docker_compose_config.append("docker-compose.lacedb.yml")
+    print("📦 LanceDB configuration loaded")
+
+# Load the docker-compose configuration
+docker_compose(docker_compose_config)
+
+# Ensure network is created first
+local_resource(
+    name="ensure-network",
+    cmd="docker network create kafka-network 2>/dev/null || true",
+    deps=[],
+    ignore=[],
+    auto_init=True
+)
 
 # Add helpful local resources for operations
 local_resource(
@@ -38,8 +63,31 @@ local_resource(
     ignore=["*.log"]
 )
 
-print("✅ Architecture configured for lancedb database")
-print("📚 Use 'tilt up' to start all services")
-print("🔧 Use 'tilt trigger <resource-name>' to run specific operations")
-print("📊 Use 'tilt get uiresources' to see all available resources")
-print("💡 Use 'DATABASE_TYPE=postgres tilt up' to start with PostgreSQL")
+# Add database-specific health checks
+if database_type == "postgres":
+    local_resource(
+        name="db-health-check",
+        cmd="curl -f http://localhost:5432 || echo 'PostgreSQL is running on port 5432'",
+        deps=[],
+        ignore=["*.log"]
+    )
+else:
+    local_resource(
+        name="db-health-check",
+        cmd="curl -f http://localhost:9090 || echo 'LanceDB is running on port 9090'",
+        deps=[],
+        ignore=["*.log"]
+    )
+
+print("\n✨ Setup Complete!")
+print("📚 Available Commands:")
+print("   • Start services: ")
+print("     ▸ Default (LanceDB): tilt up")
+print("     ▸ PostgreSQL: DATABASE_TYPE=postgres tilt up")
+print("   • Operations:")
+print("     ▸ Run specific task: tilt trigger <resource-name>")
+print("     ▸ View resources: tilt get uiresources")
+print("     ▸ View logs: tilt logs")
+print("   • Health Checks:")
+print("     ▸ Services: tilt trigger health-check")
+print("     ▸ Database: tilt trigger db-health-check")

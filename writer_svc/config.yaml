@@ -1,37 +1,23 @@
 # Writer Service Configuration
-
-# Kafka Configuration
 kafka:
-  bootstrap_servers: "kafka:29092"
-  input_topic: "embeddings"
-  consumer_group: "writer-service"
+  bootstrap_servers: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}"
+  input_topic: "${KAFKA_INPUT_TOPIC:-embeddings}"
+  consumer_group: "${KAFKA_CONSUMER_GROUP:-writer-group}"
 
-# Database Configuration
-# Choose one database type: 'lancedb' or 'postgres'
 database:
-  type: "lancedb"  # Options: lancedb, postgres
-  
-  # LanceDB Configuration
-  lancedb:
-    table_name: "embeddings"
-    db_path: "./lancedb_data"
-  
-  # PostgreSQL Configuration
+  type: "${DATABASE_TYPE:-lancedb}"
   postgres:
-    host: "postgres"
-    port: 5432
-    database: "embeddings_db"
-    user: "postgres"
-    password: "postgres"
+    host: "${DATABASE_HOST:-postgres}"
+    port: ${DATABASE_PORT:-5432}
+    database: "${DATABASE_NAME:-embeddings_db}"
+    user: "${DATABASE_USER:-postgres}"
+    password: "${DATABASE_PASSWORD:-postgres}"
+    table_name: "embeddings"
+  lancedb:
+    data_dir: "${LANCEDB_DATA_DIR:-/app/lancedb_data}"
     table_name: "embeddings"
 
-# Flask Configuration
-flask:
+service:
   host: "0.0.0.0"
   port: 5001
-  debug: false
-
-# Logging Configuration
-logging:
-  level: "INFO"
-  file: "writer_service.log"
+  log_level: "INFO"

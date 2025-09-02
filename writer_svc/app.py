@@ -8,6 +8,7 @@ import json
 import time
 import logging
 import os
+import os
 from typing import Dict, Any, Optional
 from flask import Flask, jsonify, request
 import yaml
@@ -85,12 +86,19 @@ class WriterService:
     
     def _init_kafka_consumer(self):
         """Initialize Kafka consumer."""
-        kafka_config = self.config['kafka']
+        kafka_config = self.config.get('kafka', {})
+        
+        # Get configuration from environment variables first, then fall back to config file
+        input_topic = os.environ.get('KAFKA_INPUT_TOPIC') or kafka_config.get('input_topic', 'embeddings')
+        bootstrap_servers = os.environ.get('KAFKA_BOOTSTRAP_SERVERS') or kafka_config.get('bootstrap_servers', 'kafka:29092')
+        group_id = os.environ.get('KAFKA_CONSUMER_GROUP') or kafka_config.get('consumer_group', 'writer-group')
+        
+        logger.info(f"Initializing Kafka consumer with topic: {input_topic}, bootstrap_servers: {bootstrap_servers}, group_id: {group_id}")
         
         self.consumer = KafkaConsumer(
-            kafka_config['input_topic'],
-            bootstrap_servers=kafka_config['bootstrap_servers'],
-            group_id=kafka_config['consumer_group'],
+            input_topic,
+            bootstrap_servers=bootstrap_servers,
+            group_id=group_id,
             auto_offset_reset='earliest',
             enable_auto_commit=True,
             value_deserializer=lambda x: json.loads(x.decode('utf-8')),
@@ -225,30 +233,48 @@ class WriterService:
 app = Flask(__name__)
 writer_service = None
 
+# Initialize writer service when Flask app starts
+def init_writer_service(config_path):
+    """Initialize and start the writer service."""
+    try:
+        writer_service = WriterService(config_path=config_path)
+        return writer_service
+    except Exception as e:
+        logger.error(f"Failed to initialize writer service: {e}")
+        raise
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description='Writer Service')
+    parser.add_argument('-c', '--config', default='config.yaml',
+                      help='Path to config file (default: config.yaml)')
+    args = parser.parse_args()
+    init_writer_service(args.config)
+
+# Initialize service when app starts
+init_writer_service()
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint."""
     if writer_service:
         return jsonify(writer_service.get_health())
-    return jsonify({'status': 'not_initialized'})
+    return jsonify({'status': 'initializing', 'message': 'Service is starting up automatically'})
 
 @app.route('/stats', methods=['GET'])
 def stats():
     """Statistics endpoint."""
     if writer_service:
         return jsonify(writer_service.get_stats())
-    return jsonify({'error': 'Service not initialized'})
+    return jsonify({'error': 'Service not initialized', 'message': 'Service is starting up automatically'})
 
 @app.route('/start', methods=['POST'])
 def start_service():
-    """Start the writer service."""
+    """Start the writer service (if not already running)."""
     global writer_service
     
     if not writer_service:
-        try:
-            writer_service = WriterService()
-        except Exception as e:
-            return jsonify({'error': f'Failed to initialize service: {e}'}), 500
+        return jsonify({'error': 'Service not initialized'}), 500
     
     if writer_service.running:
         return jsonify({'message': 'Service is already running'})
@@ -279,19 +305,16 @@ def get_config():
             'kafka_topic': writer_service.config.get('kafka', {}).get('input_topic'),
             'bootstrap_servers': writer_service.config.get('kafka', {}).get('bootstrap_servers')
         })
-    return jsonify({'error': 'Service not initialized'}), 400
+    return jsonify({'error': 'Service not initialized', 'message': 'Service is starting up automatically'}), 400
 
 if __name__ == '__main__':
     try:
-        writer_service = WriterService()
-        logger.info("Writer service initialized successfully")
-        
-        # Start the service
+        # Start the Flask app (writer service auto-initializes)
         app.run(
-            host=writer_service.config.get('flask', {}).get('host', '0.0.0.0'),
-            port=writer_service.config.get('flask', {}).get('port', 5001),
-            debug=writer_service.config.get('flask', {}).get('debug', False)
+            host='0.0.0.0',
+            port=5001,
+            debug=False
         )
     except Exception as e:
-        logger.error(f"Failed to start writer service: {e}")
+        logger.error(f"Failed to start Flask app: {e}")
         sys.exit(1)

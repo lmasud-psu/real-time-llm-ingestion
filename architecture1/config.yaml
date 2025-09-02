@@ -1,0 +1,24 @@
+# Writer Service Configuration
+kafka:
+  bootstrap_servers: "kafka:29092"
+  topic_text: "text-messages"
+  topic_embeddings: "embeddings"
+  group_id: "writer-group"
+
+database:
+  type: "${DATABASE_TYPE}"
+  postgres:
+    host: "${DATABASE_HOST}"
+    port: ${DATABASE_PORT}
+    database: "${DATABASE_NAME}"
+    user: "${DATABASE_USER}"
+    password: "${DATABASE_PASSWORD}"
+    table_name: "embeddings"
+  lancedb:
+    data_dir: "/app/lancedb_data"
+    table_name: "embeddings"
+
+service:
+  host: "0.0.0.0"
+  port: 5001
+  log_level: "INFO"

@@ -27,4 +27,4 @@ volumes:
 
 networks:
   kafka-network:
-    external: true
+    name: kafka-network

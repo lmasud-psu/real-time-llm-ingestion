@@ -1,0 +1,46 @@
+services:
+  # Writer service configured for LanceDB
+  writer-service:
+    extends:
+      file: ../writer_svc/docker-compose.yml
+      service: writer-service
+    depends_on:
+      - kafka
+      - embedding-service
+      - lancedb-env
+    environment:
+      - DATABASE_TYPE=lancedb
+      - LANCEDB_DATA_DIR=/app/lancedb_data
+    networks:
+      - kafka-network
+      - lancedb-network
+    volumes:
+      - type: bind
+        source: ${PWD}/config.yaml
+        target: /app/config.yaml
+        read_only: true
+      - writer-logs:/app/logs
+      - lancedb-data:/app/lancedb_data
+
+  # LanceDB service
+  lancedb-env:
+    extends:
+      file: ../lancedb/docker-compose.yml
+      service: lancedb-env
+    volumes:
+      - lancedb-data:/data
+      - ../lancedb:/app
+    networks:
+      - lancedb-network
+
+volumes:
+  writer-logs:
+    driver: local
+  lancedb-data:
+    driver: local
+
+networks:
+  kafka-network:
+    external: true
+  lancedb-network:
+    driver: bridge

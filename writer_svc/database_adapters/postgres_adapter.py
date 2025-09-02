@@ -5,6 +5,7 @@ Handles writing embeddings to PostgreSQL database with pgvector.
 
 import logging
 import time
+import os
 from typing import Dict, Any, List
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -18,12 +19,12 @@ class PostgresAdapter:
         self.connection = None
         self.table_name = config.get('table_name', 'embeddings')
         
-        # Database connection parameters
-        self.host = config.get('host', 'localhost')
-        self.port = config.get('port', 5432)
-        self.database = config.get('database', 'embeddings_db')
-        self.user = config.get('user', 'postgres')
-        self.password = config.get('password', 'postgres')
+        # Database connection parameters from environment variables
+        self.host = os.environ.get('DATABASE_HOST', config.get('postgres', {}).get('host', 'localhost'))
+        self.port = int(os.environ.get('DATABASE_PORT', config.get('postgres', {}).get('port', 5432)))
+        self.database = os.environ.get('DATABASE_NAME', config.get('postgres', {}).get('database', 'embeddings_db'))
+        self.user = os.environ.get('DATABASE_USER', config.get('postgres', {}).get('user', 'postgres'))
+        self.password = os.environ.get('DATABASE_PASSWORD', config.get('postgres', {}).get('password', 'postgres'))
         
         # Initialize connection
         self._connect()

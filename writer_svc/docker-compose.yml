@@ -8,11 +8,8 @@ services:
       - "5001:5001"
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_TYPE=${DATABASE_TYPE:-lancedb}
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
       - writer-logs:/app/logs
-      - lancedb-data:/app/lancedb_data
     networks:
       - kafka-network
     restart: unless-stopped
@@ -26,9 +23,7 @@ services:
 volumes:
   writer-logs:
     driver: local
-  lancedb-data:
-    driver: local
 
 networks:
   kafka-network:
-    external: true
+    name: kafka-network

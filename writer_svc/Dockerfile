@@ -5,6 +5,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
+    gettext-base \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
@@ -25,5 +26,8 @@ EXPOSE 5001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:5001/health || exit 1
 
-# Run the application
-CMD ["python", "app.py"]
+# Make startup script executable
+RUN chmod +x /app/startup.sh
+
+# Run the startup script
+CMD ["/app/startup.sh"]

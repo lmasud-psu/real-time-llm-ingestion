@@ -1,0 +1,83 @@
+services:
+  # Writer service configured for PostgreSQL
+  writer-service:
+    extends:
+      file: ../writer_svc/docker-compose.yml
+      service: writer-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      embedding-service:
+        condition: service_started
+    environment:
+      - DATABASE_TYPE=postgres
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=embeddings_db
+      - DATABASE_USER=postgres
+      - DATABASE_PASSWORD=postgres
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - KAFKA_INPUT_TOPIC=embeddings
+      - KAFKA_CONSUMER_GROUP=writer-group
+      - LANCEDB_CONFIG_DIR=/tmp
+    networks:
+      - kafka-network
+      - pgvector-network
+    volumes:
+      - type: bind
+        source: ${PWD}/config.yaml
+        target: /app/config.yaml
+        read_only: true
+      - writer-logs:/app/logs
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL with pgvector
+  postgres:
+    extends:
+      file: ../pgvector/docker-compose.yml
+      service: postgres
+    networks:
+      - pgvector-network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../pgvector/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d embeddings_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # pgAdmin for database management
+  pgadmin:
+    extends:
+      file: ../pgvector/docker-compose.yml
+      service: pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - pgvector-network
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  writer-logs:
+    driver: local
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  kafka-network:
+    external: true
+  pgvector-network:
+    driver: bridge

@@ -38,47 +38,8 @@ services:
       - kafka
       - schema-registry
 
-  # Writer service (imported from writer_svc directory)
-  writer-service:
-    extends:
-      file: ../writer_svc/docker-compose.yml
-      service: writer-service
-    depends_on:
-      - kafka
-      - embedding-service
-    environment:
-      - DATABASE_TYPE=${DATABASE_TYPE:-lancedb}
+  
 
-  # Database services (conditional based on DATABASE_TYPE)
-  postgres:
-    extends:
-      file: ../pgvector/docker-compose.yml
-      service: postgres
-    depends_on:
-      - kafka
-    profiles:
-      - postgres
-
-  pgadmin:
-    extends:
-      file: ../pgvector/docker-compose.yml
-      service: pgadmin
-    depends_on:
-      - postgres
-    profiles:
-      - postgres
-
-  lancedb-env:
-    extends:
-      file: ../lancedb/docker-compose.yml
-      service: lancedb-env
-    depends_on:
-      - kafka
-    profiles:
-      - lancedb
-    volumes:
-      - lancedb-data:/data
-      - ../lancedb:/app
 
 # Import all volumes from other compose files
 volumes:
@@ -93,24 +54,9 @@ volumes:
   # Embedding service volumes
   embedding-logs:
     driver: local
-  
-  # Writer service volumes
-  writer-logs:
-    driver: local
-  lancedb-data:
-    driver: local
-  
-  # PostgreSQL volumes
-  postgres_data:
-    driver: local
-  pgadmin_data:
-    driver: local
 
-# Import all networks from other compose files
+# Define networks
 networks:
   kafka-network:
-    driver: bridge
-  pgvector-network:
-    driver: bridge
-  lancedb-network:
+    name: kafka-network
     driver: bridge
