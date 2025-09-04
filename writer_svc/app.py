@@ -1,320 +1,276 @@
-#!/usr/bin/env python3
-"""
-Writer Service
-A service that reads embeddings from Kafka and writes them to different databases.
-"""
-
-import json
-import time
-import logging
-import os
-import os
-from typing import Dict, Any, Optional
 from flask import Flask, jsonify, request
-import yaml
 from kafka import KafkaConsumer
 from kafka.errors import KafkaError
+import yaml
+import json
+import logging
 import threading
-import signal
+import time
+import os
+from datetime import datetime
 import sys
 
-# Database adapters
-from database_adapters.lancedb_adapter import LanceDBAdapter
-from database_adapters.postgres_adapter import PostgresAdapter
-
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('writer_service.log'),
-        logging.StreamHandler()
-    ]
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Try to import database factory with better error handling
+try:
+    from databases.database_factory import DatabaseFactory
+    DATABASE_AVAILABLE = True
+except ImportError as e:
+    logger.error(f"Database adapters not available: {e}")
+    logger.error("Please install required packages:")
+    logger.error("  pip install lancedb psycopg2-binary")
+    DATABASE_AVAILABLE = False
+except Exception as e:
+    logger.error(f"Unexpected error importing database adapters: {e}")
+    DATABASE_AVAILABLE = False
+
+app = Flask(__name__)
 
 class WriterService:
     def __init__(self, config_path: str = "config.yaml"):
-        """Initialize the writer service with configuration."""
-        self.config = self._load_config(config_path)
+        if not DATABASE_AVAILABLE:
+            raise ImportError("Database adapters not available. Please install required packages.")
+            
+        self.config_path = config_path
+        self.config = self._load_config()
+        self._override_config_from_env()
         self.consumer = None
-        self.database_adapter = None
+        self.db_adapter = None
         self.running = False
         self.stats = {
-            'messages_processed': 0,
-            'messages_written': 0,
-            'errors': 0,
-            'last_processed_timestamp': None,
-            'start_time': time.time()
+            "messages_processed": 0,
+            "messages_failed": 0,
+            "last_message_time": None
         }
         
-        # Initialize database adapter
-        self._init_database_adapter()
-        
-        # Initialize Kafka consumer
-        self._init_kafka_consumer()
-        
-        # Setup signal handlers
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-    
-    def _load_config(self, config_path: str) -> Dict[str, Any]:
-        """Load configuration from YAML file."""
+    def _load_config(self):
+        """Load configuration from YAML file"""
         try:
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f)
-            logger.info(f"Configuration loaded from {config_path}")
-            return config
+            with open(self.config_path, 'r') as f:
+                return yaml.safe_load(f)
         except Exception as e:
-            logger.error(f"Error loading configuration: {e}")
+            logger.error(f"Failed to load config: {e}")
             raise
-    
-    def _init_database_adapter(self):
-        """Initialize the appropriate database adapter based on configuration."""
-        # Check environment variable first, then config file
-        db_type = os.environ.get('DATABASE_TYPE') or self.config.get('database', {}).get('type', 'lancedb')
-        db_type = db_type.lower()
+            
+    def _override_config_from_env(self):
+        """Override configuration with environment variables"""
+        # Database type override
+        if os.environ.get('DATABASE_TYPE'):
+            self.config['database']['type'] = os.environ.get('DATABASE_TYPE')
+            logger.info(f"Database type overridden from environment: {self.config['database']['type']}")
         
-        if db_type == 'lancedb':
-            self.database_adapter = LanceDBAdapter(self.config['database'])
-            logger.info("Initialized LanceDB adapter")
-        elif db_type == 'postgres':
-            self.database_adapter = PostgresAdapter(self.config['database'])
-            logger.info("Initialized PostgreSQL adapter")
-        else:
-            raise ValueError(f"Unsupported database type: {db_type}")
-    
-    def _init_kafka_consumer(self):
-        """Initialize Kafka consumer."""
-        kafka_config = self.config.get('kafka', {})
-        
-        # Get configuration from environment variables first, then fall back to config file
-        input_topic = os.environ.get('KAFKA_INPUT_TOPIC') or kafka_config.get('input_topic', 'embeddings')
-        bootstrap_servers = os.environ.get('KAFKA_BOOTSTRAP_SERVERS') or kafka_config.get('bootstrap_servers', 'kafka:29092')
-        group_id = os.environ.get('KAFKA_CONSUMER_GROUP') or kafka_config.get('consumer_group', 'writer-group')
-        
-        logger.info(f"Initializing Kafka consumer with topic: {input_topic}, bootstrap_servers: {bootstrap_servers}, group_id: {group_id}")
-        
-        self.consumer = KafkaConsumer(
-            input_topic,
-            bootstrap_servers=bootstrap_servers,
-            group_id=group_id,
-            auto_offset_reset='earliest',
-            enable_auto_commit=True,
-            value_deserializer=lambda x: json.loads(x.decode('utf-8')),
-            key_deserializer=lambda x: x.decode('utf-8') if x else None
-        )
-        
-        logger.info(f"Kafka consumer initialized for topic: {kafka_config['input_topic']}")
-    
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals."""
-        logger.info(f"Received signal {signum}, shutting down...")
-        self.stop()
-        sys.exit(0)
-    
-    def _process_message(self, message) -> bool:
-        """Process a single message from Kafka."""
+        # PostgreSQL overrides
+        if os.environ.get('DATABASE_HOST'):
+            self.config['database']['postgres']['host'] = os.environ.get('DATABASE_HOST')
+        if os.environ.get('DATABASE_PORT'):
+            self.config['database']['postgres']['port'] = int(os.environ.get('DATABASE_PORT'))
+        if os.environ.get('DATABASE_NAME'):
+            self.config['database']['postgres']['database'] = os.environ.get('DATABASE_NAME')
+        if os.environ.get('DATABASE_USER'):
+            self.config['database']['postgres']['user'] = os.environ.get('DATABASE_USER')
+        if os.environ.get('DATABASE_PASSWORD'):
+            self.config['database']['postgres']['password'] = os.environ.get('DATABASE_PASSWORD')
+            
+        # Kafka overrides
+        if os.environ.get('KAFKA_BOOTSTRAP_SERVERS'):
+            self.config['kafka']['bootstrap_servers'] = os.environ.get('KAFKA_BOOTSTRAP_SERVERS')
+        if os.environ.get('KAFKA_INPUT_TOPIC'):
+            self.config['kafka']['topic'] = os.environ.get('KAFKA_INPUT_TOPIC')
+        if os.environ.get('KAFKA_CONSUMER_GROUP'):
+            self.config['kafka']['group_id'] = os.environ.get('KAFKA_CONSUMER_GROUP')
+            
+        # LanceDB overrides
+        if os.environ.get('LANCEDB_DATA_DIR'):
+            self.config['database']['lancedb']['data_path'] = os.environ.get('LANCEDB_DATA_DIR')
+            
+        logger.info(f"Configuration loaded: {self.config}")
+            
+    def _setup_database(self):
+        """Setup database adapter"""
         try:
-            # Extract message data
-            message_data = message.value
-            message_key = message.key
+            db_type = self.config["database"]["type"]
+            self.db_adapter = DatabaseFactory.create_adapter(db_type, self.config["database"])
+            logger.info(f"Database adapter created for {db_type}")
+        except Exception as e:
+            logger.error(f"Failed to setup database: {e}")
+            raise
             
-            logger.debug(f"Processing message: {message_key}")
-            
-            # Validate message structure
-            if not isinstance(message_data, dict):
-                logger.warning(f"Invalid message format: {type(message_data)}")
-                return False
-            
-            # Extract required fields
-            message_id = message_data.get('id')
-            original_text = message_data.get('original_text')
-            embedding = message_data.get('embedding')
-            
-            if not all([message_id, original_text, embedding]):
-                logger.warning(f"Missing required fields in message: {message_data}")
-                return False
-            
-            # Write to database
-            success = self.database_adapter.write_embedding(
-                message_id=message_id,
-                original_text=original_text,
-                embedding=embedding,
-                metadata=message_data
+    def _setup_kafka_consumer(self):
+        """Setup Kafka consumer"""
+        try:
+            kafka_config = self.config["kafka"]
+            self.consumer = KafkaConsumer(
+                kafka_config["topic"],
+                bootstrap_servers=kafka_config["bootstrap_servers"],
+                group_id=kafka_config["group_id"],
+                auto_offset_reset='earliest',
+                enable_auto_commit=True,
+                value_deserializer=lambda x: json.loads(x.decode('utf-8'))
             )
+            logger.info(f"Kafka consumer created for topic: {kafka_config['topic']}")
+        except Exception as e:
+            logger.error(f"Failed to setup Kafka consumer: {e}")
+            raise
             
-            if success:
-                self.stats['messages_written'] += 1
-                logger.info(f"Successfully wrote embedding for message: {message_id}")
-            else:
-                logger.error(f"Failed to write embedding for message: {message_id}")
+    def _process_message(self, message):
+        """Process a single message from Kafka"""
+        try:
+            value = message.value
+            logger.info(f"Processing message: {value.get('id', 'unknown')}")
             
-            self.stats['messages_processed'] += 1
-            self.stats['last_processed_timestamp'] = time.time()
+            # Extract table name from message metadata
+            table_name = value.get('table_name', 'embeddings')
             
-            return success
+            # Ensure table exists
+            self.db_adapter.create_table(table_name)
+            
+            # Prepare data for insertion
+            data = [{
+                'id': value.get('id'),
+                'text': value.get('text'),
+                'embedding': value.get('embedding'),
+                'timestamp': value.get('timestamp'),
+                'source': value.get('source'),
+                'metadata': value.get('metadata', {})
+            }]
+            
+            # Insert data
+            self.db_adapter.insert_data(table_name, data)
+            
+            # Update stats
+            self.stats["messages_processed"] += 1
+            self.stats["last_message_time"] = datetime.now().isoformat()
+            
+            logger.info(f"Successfully processed message {value.get('id')} to table {table_name}")
             
         except Exception as e:
-            self.stats['errors'] += 1
-            logger.error(f"Error processing message: {e}")
-            return False
-    
+            logger.error(f"Failed to process message: {e}")
+            self.stats["messages_failed"] += 1
+            
     def start(self):
-        """Start the writer service."""
-        if self.running:
-            logger.warning("Service is already running")
-            return
-        
-        self.running = True
-        logger.info("Starting writer service...")
-        
+        """Start the writer service"""
         try:
+            logger.info("Starting writer service...")
+            
+            # Setup components
+            self._setup_database()
+            self._setup_kafka_consumer()
+            
+            self.running = True
+            
+            # Start consuming messages
             for message in self.consumer:
                 if not self.running:
                     break
-                
+                    
                 self._process_message(message)
                 
-        except KafkaError as e:
-            logger.error(f"Kafka error: {e}")
         except Exception as e:
-            logger.error(f"Unexpected error: {e}")
+            logger.error(f"Error in writer service: {e}")
+            self.running = False
         finally:
-            self.stop()
-    
+            if self.consumer:
+                self.consumer.close()
+            if hasattr(self.db_adapter, 'close'):
+                self.db_adapter.close()
+                
     def stop(self):
-        """Stop the writer service."""
-        if not self.running:
-            return
-        
+        """Stop the writer service"""
         logger.info("Stopping writer service...")
         self.running = False
-        
         if self.consumer:
             self.consumer.close()
-            logger.info("Kafka consumer closed")
-        
-        if self.database_adapter:
-            self.database_adapter.close()
-            logger.info("Database adapter closed")
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get service statistics."""
-        uptime = time.time() - self.stats['start_time']
-        return {
-            **self.stats,
-            'uptime_seconds': uptime,
-            'uptime_formatted': f"{int(uptime // 3600)}h {int((uptime % 3600) // 60)}m {int(uptime % 60)}s",
-            'running': self.running
-        }
-    
-    def get_health(self) -> Dict[str, Any]:
-        """Get service health status."""
-        try:
-            db_health = self.database_adapter.health_check()
-            kafka_health = self.consumer is not None
-            
-            return {
-                'status': 'healthy' if (db_health and kafka_health) else 'unhealthy',
-                'database': 'healthy' if db_health else 'unhealthy',
-                'kafka': 'healthy' if kafka_health else 'unhealthy',
-                'timestamp': time.time()
-            }
-        except Exception as e:
-            logger.error(f"Health check error: {e}")
-            return {
-                'status': 'unhealthy',
-                'error': str(e),
-                'timestamp': time.time()
-            }
 
-# Flask app
-app = Flask(__name__)
+# Global writer service instance
 writer_service = None
-
-# Initialize writer service when Flask app starts
-def init_writer_service(config_path):
-    """Initialize and start the writer service."""
-    try:
-        writer_service = WriterService(config_path=config_path)
-        return writer_service
-    except Exception as e:
-        logger.error(f"Failed to initialize writer service: {e}")
-        raise
-
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description='Writer Service')
-    parser.add_argument('-c', '--config', default='config.yaml',
-                      help='Path to config file (default: config.yaml)')
-    args = parser.parse_args()
-    init_writer_service(args.config)
-
-# Initialize service when app starts
-init_writer_service()
+service_thread = None
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint."""
-    if writer_service:
-        return jsonify(writer_service.get_health())
-    return jsonify({'status': 'initializing', 'message': 'Service is starting up automatically'})
+    """Health check endpoint"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': 'Database adapters not available',
+            'service_running': False,
+            'timestamp': datetime.now().isoformat()
+        }), 500
+        
+    return jsonify({
+        'status': 'healthy',
+        'service_running': writer_service.running if writer_service else False,
+        'timestamp': datetime.now().isoformat()
+    })
 
 @app.route('/stats', methods=['GET'])
 def stats():
-    """Statistics endpoint."""
+    """Get service statistics"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({'error': 'Database adapters not available'}), 500
+        
     if writer_service:
-        return jsonify(writer_service.get_stats())
-    return jsonify({'error': 'Service not initialized', 'message': 'Service is starting up automatically'})
+        return jsonify(writer_service.stats)
+    return jsonify({'error': 'Service not running'})
 
 @app.route('/start', methods=['POST'])
 def start_service():
-    """Start the writer service (if not already running)."""
-    global writer_service
+    """Start the writer service"""
+    global writer_service, service_thread
     
-    if not writer_service:
-        return jsonify({'error': 'Service not initialized'}), 500
+    if not DATABASE_AVAILABLE:
+        return jsonify({'error': 'Database adapters not available'}), 500
     
-    if writer_service.running:
-        return jsonify({'message': 'Service is already running'})
-    
-    # Start service in background thread
-    thread = threading.Thread(target=writer_service.start, daemon=True)
-    thread.start()
-    
-    return jsonify({'message': 'Service started successfully'})
+    if writer_service and writer_service.running:
+        return jsonify({'message': 'Service already running'})
+        
+    try:
+        writer_service = WriterService()
+        service_thread = threading.Thread(target=writer_service.start, daemon=True)
+        service_thread.start()
+        
+        return jsonify({'message': 'Writer service started successfully'})
+    except Exception as e:
+        return jsonify({'error': f'Failed to start service: {str(e)}'}), 500
 
 @app.route('/stop', methods=['POST'])
 def stop_service():
-    """Stop the writer service."""
+    """Stop the writer service"""
     global writer_service
     
     if not writer_service:
-        return jsonify({'error': 'Service not initialized'}), 400
-    
-    writer_service.stop()
-    return jsonify({'message': 'Service stopped successfully'})
+        return jsonify({'message': 'Service not running'})
+        
+    try:
+        writer_service.stop()
+        return jsonify({'message': 'Writer service stopped successfully'})
+    except Exception as e:
+        return jsonify({'error': f'Failed to stop service: {str(e)}'}), 500
 
 @app.route('/config', methods=['GET'])
 def get_config():
-    """Get current configuration."""
+    """Get current configuration"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({'error': 'Database adapters not available'}), 500
+        
     if writer_service:
-        return jsonify({
-            'database_type': writer_service.config.get('database', {}).get('type'),
-            'kafka_topic': writer_service.config.get('kafka', {}).get('input_topic'),
-            'bootstrap_servers': writer_service.config.get('kafka', {}).get('bootstrap_servers')
-        })
-    return jsonify({'error': 'Service not initialized', 'message': 'Service is starting up automatically'}), 400
+        return jsonify(writer_service.config)
+    return jsonify({'error': 'Service not running'})
 
 if __name__ == '__main__':
-    try:
-        # Start the Flask app (writer service auto-initializes)
-        app.run(
-            host='0.0.0.0',
-            port=5001,
-            debug=False
-        )
-    except Exception as e:
-        logger.error(f"Failed to start Flask app: {e}")
+    if not DATABASE_AVAILABLE:
+        logger.error("Cannot start service: Database adapters not available")
         sys.exit(1)
+        
+    # Auto-start the service when the app starts
+    try:
+        writer_service = WriterService()
+        service_thread = threading.Thread(target=writer_service.start, daemon=True)
+        service_thread.start()
+        logger.info("Writer service auto-started")
+    except Exception as e:
+        logger.error(f"Failed to auto-start service: {e}")
+    
+    app.run(host='0.0.0.0', port=5000, debug=False)

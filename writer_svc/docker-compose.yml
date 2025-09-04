@@ -1,29 +1,21 @@
+version: '3.8'
+
 services:
   writer-service:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    container_name: writer-service
+    build: .
     ports:
-      - "5001:5001"
-    environment:
-      - PYTHONUNBUFFERED=1
+      - "5001:5000"
     volumes:
-      - writer-logs:/app/logs
+      - ./lancedb_data:/app/lancedb_data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - FLASK_ENV=production
     networks:
       - kafka-network
+    depends_on:
+      - kafka
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-volumes:
-  writer-logs:
-    driver: local
 
 networks:
   kafka-network:
-    name: kafka-network
+    external: true

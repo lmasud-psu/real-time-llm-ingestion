@@ -1,63 +1,181 @@
 # Writer Service
 
-Service that reads embeddings from Kafka and writes them to different databases based on configuration.
+A Flask-based service that reads embeddings from Kafka and writes them to either LanceDB or PostgreSQL databases.
 
-## Quick Start
+## Features
 
-Configure the database type and start the service. The service automatically starts processing messages when launched.
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Edit config.yaml to choose database (lancedb or postgres)
-# Start service (auto-starts message processing)
-python app.py
-```
+- **Kafka Consumer**: Reads from the `embeddings` topic
+- **Database Adapters**: Supports LanceDB and PostgreSQL with pgvector
+- **Auto-start**: Service automatically starts consuming messages on startup
+- **REST API**: Health checks, statistics, and manual control endpoints
+- **Database Migrations**: Automated table creation and schema management
 
 ## Configuration
 
-Choose database type in `config.yaml`:
-./
-```yaml
-database:
-  type: "lancedb"  # or "postgres"
-  
-  # LanceDB settings
-  lancedb:
-    table_name: "embeddings"
-    db_path: "./lancedb_data"
-  
-  # PostgreSQL settings  
-  postgres:
-    host: "localhost"
-    port: 5432
-    database: "embeddings_db"
-    user: "postgres"
-    password: "postgres"
+Edit `config.yaml` to configure:
+- Kafka connection settings
+- Database type (lancedb/postgres)
+- Database-specific connection parameters
+
+## Quick Start
+
+### 1. Start Kafka
+
+```bash
+cd ../kafka
+docker compose up -d
+```
+
+### 2. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Run Database Migrations
+
+**For LanceDB:**
+```bash
+python databases/lancedb/migrations/001_create_embeddings_table.py
+```
+
+**For PostgreSQL:**
+```bash
+# Set environment variables
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export POSTGRES_DB=embeddings_db
+export POSTGRES_USER=postgres
+export POSTGRES_PASSWORD=postgres
+
+# Run migrations
+python databases/postgres/migrations/run_migrations.py
+```
+
+### 4. Start the Writer Service
+
+```bash
+python app.py
+```
+
+The service will automatically start consuming messages from Kafka.
+
+## End-to-End Example
+
+### 1. Start Infrastructure
+
+```bash
+# Start Kafka
+cd ../kafka
+docker compose up -d
+
+# Start PostgreSQL (if using postgres)
+cd ../pgvector
+docker compose up -d
+
+# Wait for services to be ready
+sleep 10
+```
+
+### 2. Run Migrations
+
+```bash
+cd ../writer_svc
+
+# For LanceDB (default)
+python databases/lancedb/migrations/001_create_embeddings_table.py
+
+# OR for PostgreSQL
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export POSTGRES_DB=embeddings_db
+export POSTGRES_USER=postgres
+export POSTGRES_PASSWORD=postgres
+python databases/postgres/migrations/run_migrations.py
+```
+
+### 3. Start Writer Service
+
+```bash
+python app.py
+```
+
+### 4. Send Test Message
+
+Using the Kafka CLI from the kafka directory:
+
+```bash
+cd ../kafka
+python kafka_cli.py write-to-topic embeddings '{"id": "test-001", "text": "Hello world", "embedding": [0.1, 0.2, 0.3], "timestamp": "2024-01-01T00:00:00Z", "source": "test", "table_name": "embeddings"}'
+```
+
+### 5. Verify Data
+
+**For LanceDB:**
+```bash
+cd ../writer_svc
+python -c "
+from databases.lancedb_adapter import LanceDBAdapter
+adapter = LanceDBAdapter('./lancedb_data')
+adapter.connect()
+result = adapter.query_table('embeddings')
+print('Records found:', len(result))
+print('Sample record:', result.iloc[0] if len(result) > 0 else 'No records')
+"
+```
+
+**For PostgreSQL:**
+```bash
+cd ../pgvector
+python pgvector_cli.py query-table embeddings
 ```
 
 ## API Endpoints
 
+- `GET /health` - Service health check
+- `GET /stats` - Processing statistics
+- `GET /config` - Current configuration
+- `POST /start` - Manually start service
+- `POST /stop` - Manually stop service
+
+## Docker Deployment
+
 ```bash
-GET  /health    # Service health
-GET  /stats     # Processing statistics
-POST /start     # Start writer service (if not running)
-POST /stop      # Stop writer service
-GET  /config    # Current configuration
+# Build and run with Docker Compose
+docker compose up -d
+
+# View logs
+docker compose logs -f writer-service
 ```
 
-**Note**: The service automatically starts processing messages when launched. The `/start` endpoint is useful for restarting the service if it was stopped.
+## Database Schemas
 
-## How It Works
+### LanceDB
+- `id`: string (primary key)
+- `text`: string
+- `embedding`: float32[384]
+- `timestamp`: timestamp[ns]
+- `source`: string
+- `metadata`: string (JSON)
 
-1. **Reads** from Kafka `embeddings` topic
-2. **Writes** to configured database (LanceDB or PostgreSQL)
-3. **Supports** multiple database types via adapters
-4. **Runs** on port 5001 by default
+### PostgreSQL
+- `id`: VARCHAR(255) (primary key)
+- `text`: TEXT
+- `embedding`: vector(384)
+- `timestamp`: TIMESTAMP WITH TIME ZONE
+- `source`: VARCHAR(255)
+- `metadata`: JSONB
 
-## Database Support
+## Troubleshooting
 
-- **LanceDB**: Local file-based vector database
-- **PostgreSQL**: With pgvector extension for vector operations
-- **Extensible**: Easy to add new database adapters
+1. **Kafka Connection Issues**: Ensure Kafka is running and accessible
+2. **Database Connection**: Check database credentials and network connectivity
+3. **Permission Errors**: Ensure proper file permissions for LanceDB data directory
+4. **Schema Issues**: Run migrations to create required tables
+
+## Development
+
+- Service auto-starts on Flask app initialization
+- Background thread handles Kafka consumption
+- Graceful shutdown on SIGTERM
+- Comprehensive error logging
