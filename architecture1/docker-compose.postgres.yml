@@ -4,6 +4,8 @@ services:
     extends:
       file: ../writer_svc/docker-compose.yml
       service: writer-service
+    ports:
+      - "5001:5000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -21,19 +23,15 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - KAFKA_INPUT_TOPIC=embeddings
       - KAFKA_CONSUMER_GROUP=writer-group
-      - LANCEDB_CONFIG_DIR=/tmp
     networks:
       - kafka-network
       - pgvector-network
     volumes:
-      - type: bind
-        source: ${PWD}/config.yaml
-        target: /app/config.yaml
-        read_only: true
+      - ../writer_svc/config.yaml:/app/config.yaml:ro
       - writer-logs:/app/logs
-    restart: on-failure
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
       timeout: 10s
       retries: 3

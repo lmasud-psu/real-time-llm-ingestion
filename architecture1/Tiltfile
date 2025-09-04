@@ -79,6 +79,74 @@ else:
         ignore=["*.log"]
     )
 
+# Add validation resources to check that writes are working
+local_resource(
+    name="validate-writer-service",
+    cmd="echo 'Checking writer service health...' && curl -f http://localhost:5001/health && echo 'Writer service healthy'",
+    deps=[],
+    ignore=["*.log"]
+)
+
+# Database validation resources
+if database_type == "postgres":
+    local_resource(
+        name="validate-postgres-writes",
+        cmd="cd ../pgvector && python pgvector_cli.py query-table embeddings --limit 5",
+        deps=["validate-writer-service"],
+        ignore=["*.log"]
+    )
+    
+    local_resource(
+        name="test-postgres-insert",
+        cmd="cd ../pgvector && python pgvector_cli.py insert-data embeddings '{\"id\": \"tilt-test-001\", \"text\": \"Test from Tilt\", \"embedding\": [0.1, 0.2, 0.3], \"timestamp\": \"2024-01-01T00:00:00Z\", \"source\": \"tilt-test\"}'",
+        deps=["validate-postgres-writes"],
+        ignore=["*.log"]
+    )
+    
+    local_resource(
+        name="verify-postgres-data",
+        cmd="cd ../pgvector && echo 'Verifying data in PostgreSQL...' && python pgvector_cli.py query-table embeddings --limit 10",
+        deps=["test-postgres-insert"],
+        ignore=["*.log"]
+    )
+else:
+    local_resource(
+        name="validate-lancedb-writes",
+        cmd="cd ../writer_svc && python -c \"from databases.lancedb_adapter import LanceDBAdapter; adapter = LanceDBAdapter('./lancedb_data'); adapter.connect(); result = adapter.query_table('embeddings'); print('LanceDB records found:', len(result))\"",
+        deps=["validate-writer-service"],
+        ignore=["*.log"]
+    )
+    
+    local_resource(
+        name="test-lancedb-insert",
+        cmd="cd ../writer_svc && python -c \"from databases.lancedb_adapter import LanceDBAdapter; adapter = LanceDBAdapter('./lancedb_data'); adapter.connect(); data = [{'id': 'tilt-test-001', 'text': 'Test from Tilt', 'embedding': [0.1, 0.2, 0.3], 'timestamp': '2024-01-01T00:00:00Z', 'source': 'tilt-test'}]; adapter.insert_data('embeddings', data); print('Test data inserted into LanceDB')\"",
+        deps=["validate-lancedb-writes"],
+        ignore=["*.log"]
+    )
+    
+    local_resource(
+        name="verify-lancedb-data",
+        cmd="cd ../writer_svc && echo 'Verifying data in LanceDB...' && python -c \"from databases.lancedb_adapter import LanceDBAdapter; adapter = LanceDBAdapter('./lancedb_data'); adapter.connect(); result = adapter.query_table('embeddings'); print('Total records:', len(result)); print('Sample record:', result.iloc[0] if len(result) > 0 else 'No records')\"",
+        deps=["test-lancedb-insert"],
+        ignore=["*.log"]
+    )
+
+# End-to-end validation workflow
+local_resource(
+    name="end-to-end-validation",
+    cmd="echo 'Running end-to-end validation...' && echo '1. Sending test message...' && cd ../kafka && python kafka_cli.py write text-messages 'Test message for end-to-end validation' && echo '2. Waiting for processing...' && sleep 10 && echo '3. Checking if embedding was generated...' && python kafka_cli.py read embeddings --max-messages 3",
+    deps=["verify-" + database_type + "-data"],
+    ignore=["*.log"]
+)
+
+# Direct writer service test with proper message format
+local_resource(
+    name="test-writer-direct",
+    cmd="echo 'Testing writer service directly...' && echo '1. Sending properly formatted message to embeddings topic...' && docker compose exec -T kafka kafka-console-producer --bootstrap-server kafka:29092 --topic embeddings <<< '{\"id\": \"direct-test-001\", \"text\": \"Direct test message\", \"embedding\": [0.1, 0.2, 0.3], \"timestamp\": \"2024-01-01T00:00:00Z\", \"source\": \"direct-test\", \"table_name\": \"embeddings\"}' && echo '2. Message sent, waiting for processing...' && sleep 5 && echo '3. Checking writer service stats...' && curl -s http://localhost:5001/stats | python -m json.tool",
+    deps=["validate-writer-service"],
+    ignore=["*.log"]
+)
+
 print("\n✨ Setup Complete!")
 print("📚 Available Commands:")
 print("   • Start services: ")
@@ -91,3 +159,8 @@ print("     ▸ View logs: tilt logs")
 print("   • Health Checks:")
 print("     ▸ Services: tilt trigger health-check")
 print("     ▸ Database: tilt trigger db-health-check")
+print("   • Validation:")
+print("     ▸ Writer Service: tilt trigger validate-writer-service")
+print("     ▸ Database Writes: tilt trigger validate-" + database_type + "-writes")
+print("     ▸ Direct Writer Test: tilt trigger test-writer-direct")
+print("     ▸ End-to-End: tilt trigger end-to-end-validation")

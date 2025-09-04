@@ -395,7 +395,78 @@ def insert_embedding(ctx, table_name, message_id, text, embedding_file, model_na
         pgvector_cli.close()
 
 
+@cli.command()
+@click.argument('table_name')
+@click.argument('data_json')
+@click.pass_context
+def insert_data(ctx, table_name, data_json):
+    """Insert data directly from JSON string."""
+    pgvector_cli = ctx.obj['pgvector_cli']
+    try:
+        # Parse JSON data
+        try:
+            data = json.loads(data_json)
+        except json.JSONDecodeError as e:
+            click.echo(f"Error: Invalid JSON format: {e}", err=True)
+            return
+        
+        # Extract fields
+        message_id = data.get('id')
+        text = data.get('text')
+        embedding = data.get('embedding', [])
+        source = data.get('source', 'cli')
+        
+        if not message_id or not text:
+            click.echo("Error: Missing required fields 'id' or 'text'", err=True)
+            return
+        
+        # Insert the data
+        pgvector_cli.insert_embedding(table_name, message_id, text, embedding, source)
+        click.echo(f"Successfully inserted data into table '{table_name}'")
+        
+    finally:
+        pgvector_cli.close()
 
+
+@cli.command()
+@click.argument('table_name')
+@click.option('--limit', default=10, help='Number of records to return (default: 10)')
+@click.option('--query', help='Text to search for in the original_text field')
+@click.pass_context
+def query_table(ctx, table_name, limit, query):
+    """Query records from a table with optional text search."""
+    pgvector_cli = ctx.obj['pgvector_cli']
+    try:
+        if query:
+            # Search for text in the table
+            results = pgvector_cli.search_text(table_name, query, limit)
+            if results:
+                click.echo(f"Search results for '{query}' in table '{table_name}':")
+                for record in results:
+                    click.echo(f"  ID: {record['id']}")
+                    click.echo(f"  Message ID: {record['message_id']}")
+                    click.echo(f"  Text: {record['original_text'][:100]}...")
+                    click.echo(f"  Model: {record['model_name']}")
+                    click.echo(f"  Created: {record['created_at']}")
+                    click.echo()
+            else:
+                click.echo(f"No results found for '{query}' in table '{table_name}'")
+        else:
+            # Just read the table
+            results = pgvector_cli.read_table(table_name, limit, 0)
+            if results:
+                click.echo(f"Records from table '{table_name}':")
+                for record in results:
+                    click.echo(f"  ID: {record['id']}")
+                    click.echo(f"  Message ID: {record['message_id']}")
+                    click.echo(f"  Text: {record['original_text'][:100]}...")
+                    click.echo(f"  Model: {record['model_name']}")
+                    click.echo(f"  Created: {record['created_at']}")
+                    click.echo()
+            else:
+                click.echo(f"No records found in table '{table_name}'")
+    finally:
+        pgvector_cli.close()
 
 
 @cli.command()

@@ -1,174 +1,157 @@
 # Real-time LLM Ingestion Architecture
 
-A centralized architecture for real-time LLM ingestion using Kafka, embedding generation, and flexible database storage.
+A centralized architecture for real-time LLM ingestion using Kafka, embedding generation, and vector database storage.
 
-## 🚀 Quick Start
+## Architecture Overview
 
-### Option 1: Using the Startup Script (Recommended)
-```bash
-# Start with LanceDB (default)
-./start.sh
-
-# Start with PostgreSQL
-DATABASE_TYPE=postgres ./start.sh
+```
+┌─────────────┐    ┌──────────────┐    ┌─────────────┐
+│   Kafka     │───▶│  Embedding   │───▶│   Writer    │
+│  Cluster    │    │   Service    │    │  Service    │
+└─────────────┘    └──────────────┘    └─────────────┘
+                           │                    │
+                           ▼                    ▼
+                    ┌──────────────┐    ┌─────────────┐
+                    │  Embeddings  │    │  Vector     │
+                    │   Messages   │    │  Database   │
+                    └──────────────┘    └─────────────┘
 ```
 
-### Option 2: Using Docker Compose Directly
+## Services
+
+### Core Infrastructure
+- **Kafka Cluster**: Zookeeper, Kafka, Schema Registry, Kafka Connect, Kafka UI
+- **Embedding Service**: Generates embeddings from text messages (Port 5000)
+- **Writer Service**: Consumes embeddings and writes to vector databases (Port 5001)
+
+### Database Options
+- **LanceDB**: File-based vector database (default)
+- **PostgreSQL + pgvector**: Relational database with vector extension
+
+## Quick Start
+
+### 1. Setup Directories
 ```bash
-# Start with LanceDB
-docker compose --profile lancedb up -d
+cd architecture1
+./setup_directories.sh
+```
 
-# Start with PostgreSQL
-DATABASE_TYPE=postgres docker compose --profile postgres up -d
+### 2. Start Architecture
 
+**For LanceDB (default):**
+```bash
+tilt up
+```
+
+**For PostgreSQL:**
+```bash
+DATABASE_TYPE=postgres tilt up
+```
+
+### 3. Verify Services
+```bash
+# Check all services are running
+tilt get uiresources
+
+# Test writer service health
+tilt trigger validate-writer-service
+
+# Run end-to-end validation
+tilt trigger end-to-end-validation
+```
+
+## Service Details
+
+### Writer Service
+- **Port**: 5001 (external), 5000 (internal)
+- **Auto-start**: Automatically begins consuming from Kafka on startup
+- **Database Support**: LanceDB and PostgreSQL with pgvector
+- **Message Format**: Expects JSON with `id`, `text`, `embedding`, `timestamp`, `source`, and `table_name`
+
+### Database Configuration
+The writer service automatically detects the database type from environment variables:
+- `DATABASE_TYPE`: `lancedb` or `postgres`
+- Database-specific connection parameters are automatically configured
+
+## Available Commands
+
+### Health Checks
+- `tilt trigger health-check` - Check embedding service health (port 5000)
+- `tilt trigger db-health-check` - Check database health
+- `tilt trigger validate-writer-service` - Validate writer service (port 5001)
+
+### Database Operations
+- `tilt trigger validate-lancedb-writes` - Test LanceDB writes
+- `tilt trigger validate-postgres-writes` - Test PostgreSQL writes
+- `tilt trigger end-to-end-validation` - Complete end-to-end test
+
+### Kafka Operations
+- `tilt trigger create-topics` - Create required Kafka topics
+- `tilt trigger send-test-message` - Send test message to text-messages topic
+- `tilt trigger read-embeddings` - Read from embeddings topic
+
+## Configuration
+
+### Environment Variables
+- `DATABASE_TYPE`: Choose between `lancedb` and `postgres`
+- Database-specific variables are automatically set based on the chosen database
+
+### Volumes
+- `lancedb_data`: LanceDB data storage
+- `postgres_data`: PostgreSQL data storage
+- `writer-logs`: Writer service logs
+
+## Development
+
+### Adding New Services
+1. Create service directory with `docker-compose.yml`
+2. Add service to appropriate database-specific compose file
+3. Update Tiltfile with new resources if needed
+
+### Testing
+- Use `test_architecture.py` for comprehensive testing
+- Individual service tests available in respective directories
+- End-to-end validation through Tilt resources
+
+## Troubleshooting
+
+### Common Issues
+1. **Port Conflicts**: 
+   - Embedding Service: Port 5000
+   - Writer Service: Port 5001
+   - Kafka: Port 9092
+   - Zookeeper: Port 2181
+2. **Permission Errors**: Run `./setup_directories.sh` to fix directory permissions
+3. **Network Issues**: Check that `kafka-network` is created and accessible
+
+### Logs
+```bash
+# View all logs
+tilt logs
+
+# View specific service logs
+docker compose logs -f writer-service
+docker compose logs -f kafka
+```
+
+### Reset
+```bash
 # Stop all services
-docker compose down
+tilt down
+
+# Clean start
+tilt up
 ```
 
-## 🏗️ Architecture Overview
-
-This architecture orchestrates multiple services using a centralized `docker-compose.yml` that imports configurations from individual service directories:
-
-- **Kafka Infrastructure**: Message broker, Zookeeper, Schema Registry, Kafka Connect, Kafka UI
-- **Embedding Service**: Generates embeddings from text using Hugging Face models
-- **Writer Service**: Writes embeddings to configured database (LanceDB or PostgreSQL)
-- **Database Layer**: Flexible storage with LanceDB (file-based) or PostgreSQL + pgvector
-
-## 📁 Directory Structure
+## File Structure
 
 ```
 architecture1/
-├── docker-compose.yml          # Centralized orchestration
-├── start.sh                    # Easy startup script
-├── README.md                   # This file
-└── Tiltfile                    # Legacy Tilt configuration (not used)
-
-kafka/                          # Kafka cluster configuration
-embedding_gen_svc/             # Embedding generation service
-writer_svc/                     # Writer service with database adapters
-pgvector/                       # PostgreSQL + pgvector setup
-lancedb/                        # LanceDB configuration
+├── docker-compose.yml              # Base services (Kafka, Embedding)
+├── docker-compose.lancedb.yml      # LanceDB + Writer Service
+├── docker-compose.postgres.yml     # PostgreSQL + Writer Service
+├── Tiltfile                        # Tilt orchestration
+├── setup_directories.sh            # Directory setup script
+├── test_architecture.py            # Architecture test script
+└── README.md                       # This file
 ```
-
-## 🔧 Configuration
-
-### Environment Variables
-- `DATABASE_TYPE`: Choose database (`lancedb` or `postgres`)
-
-### Service Ports
-- **Kafka**: 9092
-- **Kafka UI**: 8080
-- **Schema Registry**: 8081
-- **Kafka Connect**: 8083
-- **Embedding Service**: 5000
-- **Writer Service**: 5001
-- **PostgreSQL**: 5432
-- **pgAdmin**: 8080 (conflicts with Kafka UI - use different port)
-
-## 🚦 Service Management
-
-### Start Services
-```bash
-# All services
-docker compose up -d
-
-# Specific profile
-docker compose --profile postgres up -d
-docker compose --profile lancedb up -d
-```
-
-### Check Status
-```bash
-# Service status
-docker compose ps
-
-# Service logs
-docker compose logs -f <service-name>
-docker compose logs -f kafka
-docker compose logs -f embedding-service
-```
-
-### Stop Services
-```bash
-# Stop all
-docker compose down
-
-# Stop specific services
-docker compose stop kafka embedding-service
-```
-
-## 🔄 Service Dependencies
-
-The architecture ensures proper startup order:
-1. **Kafka Infrastructure** (Zookeeper, Kafka, Schema Registry)
-2. **Embedding Service** (waits for Kafka)
-3. **Writer Service** (waits for embedding service)
-4. **Database** (waits for Kafka)
-
-## 🧪 Testing & Operations
-
-### Create Kafka Topics
-```bash
-cd ../kafka
-python kafka_cli.py create-topic text-messages
-python kafka_cli.py create-topic embeddings
-```
-
-### Send Test Messages
-```bash
-cd ../kafka
-python kafka_cli.py write text-messages "Test message for embedding generation"
-```
-
-### Check Embeddings
-```bash
-cd ../kafka
-python kafka_cli.py read embeddings --max-messages 5
-```
-
-### Database Operations
-```bash
-# LanceDB
-cd ../lancedb
-python lancedb_cli.py list-tables
-
-# PostgreSQL
-cd ../pgvector
-python pgvector_cli.py list-tables
-```
-
-## 🆘 Troubleshooting
-
-### Common Issues
-1. **Port Conflicts**: Ensure ports are available (especially 8080)
-2. **Network Issues**: Services use shared `kafka-network`
-3. **Database Connection**: Check database credentials and connectivity
-
-### Debug Commands
-```bash
-# Check network
-docker network ls
-docker network inspect architecture1_kafka-network
-
-# Check volumes
-docker volume ls
-
-# Check logs
-docker compose logs -f
-```
-
-## 🔄 Migration from Tilt
-
-This architecture replaces the previous Tilt-based approach with:
-- **Simpler orchestration** using Docker Compose
-- **Better dependency management** with explicit `depends_on`
-- **Easier debugging** with standard Docker Compose commands
-- **Profile-based configuration** for different database types
-
-## 📚 Next Steps
-
-1. **Start the architecture**: `./start.sh`
-2. **Create topics**: Use Kafka CLI to create required topics
-3. **Send test messages**: Verify the full pipeline
-4. **Monitor services**: Check logs and health endpoints
-5. **Scale as needed**: Add more services or modify configurations

@@ -4,6 +4,8 @@ services:
     extends:
       file: ../writer_svc/docker-compose.yml
       service: writer-service
+    ports:
+      - "5001:5000"
     depends_on:
       - kafka
       - embedding-service
@@ -15,12 +17,16 @@ services:
       - kafka-network
       - lancedb-network
     volumes:
-      - type: bind
-        source: ${PWD}/config.yaml
-        target: /app/config.yaml
-        read_only: true
+      - ../writer_svc/config.yaml:/app/config.yaml:ro
+      - ../writer_svc/lancedb_data:/app/lancedb_data
       - writer-logs:/app/logs
-      - lancedb-data:/app/lancedb_data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # LanceDB service
   lancedb-env:
