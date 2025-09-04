@@ -20,35 +20,32 @@ cleanup() {
 # Set up signal handlers
 trap cleanup SIGINT SIGTERM
 
-# Start services based on database type
-if [ "$DATABASE_TYPE" = "postgres" ]; then
-    echo "📊 Starting with PostgreSQL + pgvector..."
-    docker compose --profile postgres up -d
-else
-    echo "🗄️ Starting with LanceDB..."
-    docker compose --profile lancedb up -d
+# Check if docker ps works
+if ! docker ps > /dev/null 2>&1; then
+    echo "❌ Current user does not have permission to run docker commands."
+    echo "🔧 Adding user '$USER' to the docker group..."
+    sudo usermod -aG docker $USER
+    newgrp docker
+    echo "✅ User '$USER' added to docker group."
 fi
 
-echo "✅ All services started successfully!"
-echo "📊 Kafka UI: http://localhost:8080"
-echo "🔍 Schema Registry: http://localhost:8081"
-echo "🔗 Kafka Connect: http://localhost:8083"
-echo "🧠 Embedding Service: http://localhost:5000"
-echo "✍️ Writer Service: http://localhost:5001"
-
-if [ "$DATABASE_TYPE" = "postgres" ]; then
-    echo "🐘 PostgreSQL: localhost:5432"
-    echo "📊 pgAdmin: http://localhost:8080 (admin@example.com / admin)"
-else
-    echo "🗄️ LanceDB: Ready for CLI operations"
+# Check if tilt is installed
+if ! command -v tilt &> /dev/null; then
+    echo "🛠️ Tilt not found. Installing Tilt..."
+    curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
+    echo "✅ Tilt installed."
 fi
 
-echo ""
-echo "🔧 Use 'docker compose logs -f <service-name>' to view logs"
-echo "🛑 Use 'docker compose down' to stop all services"
-echo "📊 Use 'docker compose ps' to check service status"
+# Install Python dependencies for Kafka CLI
+if [ -f "../kafka/requirements.txt" ]; then
+    echo "📦 Installing Python dependencies for Kafka CLI..."
+    pip install -r ../kafka/requirements.txt
+fi
 
-# Wait for user interrupt
-echo ""
-echo "⏳ Press Ctrl+C to stop all services..."
-wait
+# Launch Tiltfile
+export DATABASE_TYPE
+
+echo "🚀 Launching Tilt for Real-time LLM Ingestion Architecture with database: $DATABASE_TYPE"
+tilt up
+
+exit 0
