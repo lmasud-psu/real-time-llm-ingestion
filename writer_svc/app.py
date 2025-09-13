@@ -85,6 +85,11 @@ class WriterService:
         # LanceDB overrides
         if os.environ.get('LANCEDB_DATA_DIR'):
             self.config['database']['lancedb']['data_path'] = os.environ.get('LANCEDB_DATA_DIR')
+        if os.environ.get('LANCEDB_URI'):
+            # When using a remote URI, the local data_path is not needed
+            self.config['database']['lancedb']['uri'] = os.environ.get('LANCEDB_URI')
+        if os.environ.get('LANCEDB_API_KEY'):
+            self.config['database']['lancedb']['api_key'] = os.environ.get('LANCEDB_API_KEY')
             
         logger.info(f"Configuration loaded: {self.config}")
             
@@ -118,34 +123,48 @@ class WriterService:
     def _process_message(self, message):
         """Process a single message from Kafka"""
         try:
-            value = message.value
-            logger.info(f"Processing message: {value.get('id', 'unknown')}")
-            
+            value = message.value or {}
+            msg_id = value.get('id')
+            if not msg_id:
+                try:
+                    # message.key may be bytes
+                    msg_id = message.key.decode('utf-8') if isinstance(message.key, (bytes, bytearray)) else (message.key or 'unknown')
+                except Exception:
+                    msg_id = 'unknown'
+
+            # Map fields from embedding-service output if needed
+            text = value.get('text') or value.get('original_text') or ''
+            source = value.get('source') or value.get('model_name') or value.get('input_source') or 'unknown'
+            timestamp_val = value.get('timestamp') or value.get('processing_timestamp') or datetime.now().isoformat()
+            embedding = value.get('embedding')
+
+            logger.info(f"Consuming from topic={getattr(message, 'topic', 'unknown')} partition={getattr(message, 'partition', 'n/a')} offset={getattr(message, 'offset', 'n/a')} id={msg_id}")
+
             # Extract table name from message metadata
             table_name = value.get('table_name', 'embeddings')
-            
+
             # Ensure table exists
             self.db_adapter.create_table(table_name)
-            
+
             # Prepare data for insertion
             data = [{
-                'id': value.get('id'),
-                'text': value.get('text'),
-                'embedding': value.get('embedding'),
-                'timestamp': value.get('timestamp'),
-                'source': value.get('source'),
+                'id': msg_id,
+                'text': text,
+                'embedding': embedding,
+                'timestamp': timestamp_val,
+                'source': source,
                 'metadata': value.get('metadata', {})
             }]
-            
+
             # Insert data
             self.db_adapter.insert_data(table_name, data)
-            
+
             # Update stats
             self.stats["messages_processed"] += 1
             self.stats["last_message_time"] = datetime.now().isoformat()
-            
-            logger.info(f"Successfully processed message {value.get('id')} to table {table_name}")
-            
+
+            logger.info(f"Successfully processed message {msg_id} to table {table_name}")
+
         except Exception as e:
             logger.error(f"Failed to process message: {e}")
             self.stats["messages_failed"] += 1
@@ -164,8 +183,10 @@ class WriterService:
             # Start consuming messages
             for message in self.consumer:
                 if not self.running:
+                    logger.error("Writer service stopped")
                     break
                     
+                logger.info(f"Processing message: {message}")
                 self._process_message(message)
                 
         except Exception as e:

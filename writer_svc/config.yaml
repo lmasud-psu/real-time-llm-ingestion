@@ -7,7 +7,9 @@ database:
   type: "lancedb"  # Options: "lancedb", "postgres"
   
   lancedb:
-    data_path: "./lancedb_data"
+    data_path: "./lancedb_data"  # For local filesystem-backed LanceDB
+    # uri: "http://lancedb-env:8080"  # Set to use remote/server/Cloud LanceDB
+    # api_key: "${LANCEDB_API_KEY}"    # Optional API key for remote deployments
     
   postgres:
     host: "postgres"
