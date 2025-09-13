@@ -26,6 +26,8 @@ class EmbeddingService:
         """Initialize the embedding service with configuration."""
         self.config = self._load_config(config_path)
         self.model = None
+        self.model_cache: Dict[str, SentenceTransformer] = {}
+        self.current_model_name: Optional[str] = None
         self.consumer = None
         self.producer = None
         self.is_running = False
@@ -67,19 +69,40 @@ class EmbeddingService:
             ]
         )
     
-    def _load_model(self):
-        """Load the Hugging Face model for embedding generation."""
+    def _load_model(self, model_name: Optional[str] = None):
+        """Load the Hugging Face model for embedding generation.
+
+        If model_name is provided, attempt to load or switch to that model.
+        Otherwise, use the default model from config.
+        Caches loaded models to avoid re-loading repeatedly.
+        """
         model_config = self.config['model']
-        model_name = model_config['name']
+        default_model_name = model_config['name']
         device = model_config.get('device', 'cpu')
-        
-        self.logger.info(f"Loading model: {model_name} on device: {device}")
-        
+
+        desired_model = model_name or default_model_name
+
+        # If already active
+        if self.current_model_name == desired_model and self.model is not None:
+            return
+
+        # Use cache if available
+        if desired_model in self.model_cache:
+            self.model = self.model_cache[desired_model]
+            self.current_model_name = desired_model
+            self.logger.info(f"Switched to cached model: {desired_model}")
+            return
+
+        # Load new model
+        self.logger.info(f"Loading model: {desired_model} on device: {device}")
         try:
-            self.model = SentenceTransformer(model_name, device=device)
-            self.logger.info(f"Successfully loaded model: {model_name}")
+            loaded = SentenceTransformer(desired_model, device=device)
+            self.model_cache[desired_model] = loaded
+            self.model = loaded
+            self.current_model_name = desired_model
+            self.logger.info(f"Successfully loaded model: {desired_model}")
         except Exception as e:
-            self.logger.error(f"Failed to load model {model_name}: {e}")
+            self.logger.error(f"Failed to load model {desired_model}: {e}")
             raise
     
     def _setup_kafka_consumer(self):
@@ -123,14 +146,14 @@ class EmbeddingService:
             self.logger.error(f"Failed to setup Kafka producer: {e}")
             raise
     
-    def _generate_embedding(self, text: str) -> Optional[np.ndarray]:
-        """Generate embedding for the given text."""
+    def _generate_embedding(self, text: str, model_name: Optional[str] = None) -> Optional[np.ndarray]:
+        """Generate embedding for the given text using the specified or active model."""
+        # Ensure correct model is active
+        self._load_model(model_name)
         if not self.model:
             self.logger.error("Model not loaded")
             return None
-        
         try:
-            # Generate embedding
             embedding = self.model.encode(text, convert_to_tensor=False)
             return embedding
         except Exception as e:
@@ -140,7 +163,7 @@ class EmbeddingService:
     def _process_message(self, message):
         """Process a single Kafka message and generate embedding."""
         try:
-            # Extract text from message
+            # Extract text and optional model override from message
             message_data = message.value
             if isinstance(message_data, dict):
                 text = message_data.get('text', '')
@@ -148,11 +171,13 @@ class EmbeddingService:
                 # Preserve additional metadata from input message
                 input_timestamp = message_data.get('timestamp')
                 input_source = message_data.get('source')
+                requested_model = message_data.get('model') or message_data.get('model_name')
             else:
                 text = str(message_data)
                 message_id = message.key or 'unknown'
                 input_timestamp = None
                 input_source = None
+                requested_model = None
             
             if not text.strip():
                 self.logger.warning(f"Empty text in message {message_id}")
@@ -160,8 +185,14 @@ class EmbeddingService:
             
             self.logger.info(f"Processing message {message_id}: {text[:100]}...")
             
+            # Determine model to use (override or default from config)
+            model_config = self.config['model']
+            default_model_name = model_config['name']
+            chosen_model = requested_model or default_model_name
+            if requested_model:
+                self.logger.info(f"Using requested model override: {requested_model}")
             # Generate embedding
-            embedding = self._generate_embedding(text)
+            embedding = self._generate_embedding(text, model_name=chosen_model)
             if embedding is None:
                 self.stats["errors"] += 1
                 return
@@ -171,7 +202,7 @@ class EmbeddingService:
                 "id": message_id,
                 "original_text": text,
                 "embedding": embedding.tolist(),  # Convert numpy array to list
-                "model_name": self.config['model']['name'],
+                "model_name": self.current_model_name or default_model_name,
                 "timestamp": time.time(),
                 "embedding_dimension": len(embedding),
                 "processing_timestamp": time.time()
