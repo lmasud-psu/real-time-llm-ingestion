@@ -54,6 +54,15 @@ class PgVectorCLI:
         except psycopg2.Error as e:
             click.echo(f"Database error: {e}", err=True)
             raise
+
+    def _get_table_columns(self, table_name: str) -> List[str]:
+        """Return list of column names for a given table (in public schema)."""
+        q = (
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = %s"
+        )
+        rows = self._execute_query(q, (table_name,))
+        return [r['column_name'] for r in rows]
     
     def list_tables(self) -> List[Dict[str, Any]]:
         """List all tables in the database."""
@@ -209,17 +218,72 @@ class PgVectorCLI:
         except Exception as e:
             click.echo(f"Error inserting embedding: {e}", err=True)
             return False
+
+    def insert_writer_schema(self, table_name: str, record: Dict[str, Any]) -> bool:
+        """Insert a record into a writer-service style table (id, text, embedding, timestamp, source, metadata)."""
+        try:
+            embedding = record.get('embedding', []) or []
+            # Normalize to default writer dimension (384): pad with zeros or truncate
+            target_dim = 384
+            emb_list = [float(x) for x in embedding]
+            if len(emb_list) < target_dim:
+                emb_list = emb_list + [0.0] * (target_dim - len(emb_list))
+            elif len(emb_list) > target_dim:
+                emb_list = emb_list[:target_dim]
+            embedding_str = f"[{','.join(map(str, emb_list))}]"
+            insert_sql = f"""
+                INSERT INTO {table_name} (id, text, embedding, timestamp, source, metadata)
+                VALUES (%s, %s, %s::vector, %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    text = EXCLUDED.text,
+                    embedding = EXCLUDED.embedding,
+                    timestamp = EXCLUDED.timestamp,
+                    source = EXCLUDED.source,
+                    metadata = EXCLUDED.metadata
+            """
+            params = (
+                record.get('id'),
+                record.get('text'),
+                embedding_str,
+                record.get('timestamp'),
+                record.get('source', 'cli'),
+                json.dumps(record.get('metadata', {}))
+            )
+            self._execute_query(insert_sql, params, fetch=False)
+            return True
+        except Exception as e:
+            click.echo(f"Error inserting writer-schema record: {e}", err=True)
+            return False
     
     def read_table(self, table_name: str, limit: int = 10, offset: int = 0) -> List[Dict[str, Any]]:
         """Read records from a table."""
         try:
-            query = f"""
-            SELECT id, message_id, original_text, model_name, created_at, updated_at
-            FROM {table_name}
-            ORDER BY created_at DESC
-            LIMIT %s OFFSET %s
-            """
-            results = self._execute_query(query, (limit, offset))
+            cols = set(self._get_table_columns(table_name))
+            if {'message_id', 'original_text', 'model_name', 'created_at'} <= cols:
+                # CLI-managed schema
+                query = f"""
+                SELECT id, message_id, original_text, model_name, created_at, updated_at
+                FROM {table_name}
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+                """
+                results = self._execute_query(query, (limit, offset))
+            else:
+                # Writer service schema fallback: id, text, embedding, timestamp, source, metadata
+                # Map fields for display
+                select_query = f"""
+                SELECT 
+                  id,
+                  id AS message_id,
+                  text AS original_text,
+                  COALESCE(source, 'unknown') AS model_name,
+                  timestamp AS created_at,
+                  timestamp AS updated_at
+                FROM {table_name}
+                ORDER BY timestamp DESC
+                LIMIT %s OFFSET %s
+                """
+                results = self._execute_query(select_query, (limit, offset))
             return results
             
         except Exception as e:
@@ -415,14 +479,34 @@ def insert_data(ctx, table_name, data_json):
         text = data.get('text')
         embedding = data.get('embedding', [])
         source = data.get('source', 'cli')
-        
+
         if not message_id or not text:
             click.echo("Error: Missing required fields 'id' or 'text'", err=True)
             return
-        
-        # Insert the data
-        pgvector_cli.insert_embedding(table_name, message_id, text, embedding, source)
-        click.echo(f"Successfully inserted data into table '{table_name}'")
+
+        # Detect table schema and insert accordingly
+        cols = set(pgvector_cli._get_table_columns(table_name))
+        ok = False
+        if {'message_id', 'original_text', 'embedding'} <= cols:
+            ok = pgvector_cli.insert_embedding(table_name, message_id, text, embedding, source)
+        elif {'id', 'text', 'embedding'} <= cols:
+            record = {
+                'id': message_id,
+                'text': text,
+                'embedding': embedding,
+                'timestamp': data.get('timestamp'),
+                'source': source,
+                'metadata': data.get('metadata', {})
+            }
+            ok = pgvector_cli.insert_writer_schema(table_name, record)
+        else:
+            click.echo("Error: Unrecognized table schema; cannot determine insert format", err=True)
+            return
+
+        if ok:
+            click.echo(f"Successfully inserted data into table '{table_name}'")
+        else:
+            click.echo(f"Failed to insert data into table '{table_name}'", err=True)
         
     finally:
         pgvector_cli.close()

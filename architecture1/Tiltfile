@@ -131,13 +131,8 @@ else:
         ignore=["*.log"]
     )
 
-# End-to-end validation workflow
-local_resource(
-    name="end-to-end-validation",
-    cmd="echo 'Running end-to-end validation...' && echo '1. Sending test message...' && cd ../kafka && python kafka_cli.py write text-messages 'Test message for end-to-end validation' && echo '2. Waiting for processing...' && sleep 10 && echo '3. Checking if embedding was generated...' && python kafka_cli.py read embeddings --max-messages 3",
-    deps=["verify-" + database_type + "-data"],
-    ignore=["*.log"]
-)
+# End-to-end validation moved to e2e_test.sh
+# Run: ./e2e_test.sh
 
 # Direct writer service test with proper message format
 local_resource(

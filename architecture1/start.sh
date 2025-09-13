@@ -6,7 +6,7 @@
 set -e
 
 # Default database type
-DATABASE_TYPE=${DATABASE_TYPE:-lancedb}
+DATABASE_TYPE=${DATABASE_TYPE:-postgres}
 
 echo "🚀 Starting Real-time LLM Ingestion Architecture with database: $DATABASE_TYPE"
 
