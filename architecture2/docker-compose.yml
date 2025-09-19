@@ -1,0 +1,182 @@
+services:
+  zookeeper:
+    container_name: architecture2-zookeeper
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: zookeeper
+    ports:
+      - "32181:2181"
+    networks:
+      - rt-llm-network
+
+  kafka:
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: kafka
+    container_name: architecture2-kafka
+    networks:
+      - rt-llm-network
+
+  kafka-ui:
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: kafka-ui
+    container_name: architecture2-kafka-ui
+    networks:
+      - rt-llm-network
+    depends_on:
+      - kafka
+
+  # Schema registry removed as we're not using Avro schemas
+
+  embedding-service:
+    extends:
+      file: ../embedding_gen_svc/docker-compose.yml
+      service: embedding-service
+    container_name: architecture2-embedding-service
+    networks:
+      rt-llm-network:
+        aliases:
+          - embedding-service
+      kafka-network:
+        aliases:
+          - embedding-service
+    depends_on:
+      kafka:
+        condition: service_started
+
+  postgres:
+    extends:
+      file: ../pgvector/docker-compose.yml
+      service: postgres
+    container_name: architecture2-pgvector-postgres
+    networks:
+      rt-llm-network:
+        aliases:
+          - pgvector-postgres
+      pgvector-network:
+        aliases:
+          - pgvector-postgres
+
+  pgadmin:
+    extends:
+      file: ../pgvector/docker-compose.yml
+      service: pgadmin
+    container_name: architecture2-pgvector-pgadmin
+    networks:
+      rt-llm-network:
+        aliases:
+          - pgvector-pgadmin
+      pgvector-network:
+        aliases:
+          - pgvector-pgadmin
+    depends_on:
+      postgres:
+        condition: service_started
+
+  flink-jobmanager:
+    build:
+      context: ../flink
+    image: rt-llm-flink:latest
+    command: jobmanager
+    container_name: flink-jobmanager
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+      EMBEDDING_SERVICE_URL: http://embedding-service:5000
+      PGVECTOR_HOST: pgvector-postgres
+      PGVECTOR_DB: embeddings_db
+      PGVECTOR_USER: postgres
+      PGVECTOR_PASSWORD: postgres
+      PGVECTOR_TABLE: text_message_embeddings
+      PGVECTOR_DIMENSION: '384'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_INPUT_TOPIC: text-messages
+      KAFKA_GROUP_ID: flink-embedding-consumer
+      FLINK_PARALLELISM: '1'
+    ports:
+      - "8081:8081"
+    networks:
+      - rt-llm-network
+    volumes:
+      - ../flink/embedding_job.py:/opt/flink/jobs/embedding_job.py:ro
+    depends_on:
+      kafka:
+        condition: service_started
+      embedding-service:
+        condition: service_started
+      postgres:
+        condition: service_started
+
+  flink-taskmanager:
+    build:
+      context: ../flink
+    image: rt-llm-flink:latest
+    command: taskmanager
+    container_name: flink-taskmanager
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+      TASK_MANAGER_NUMBER_OF_TASK_SLOTS: '2'
+      EMBEDDING_SERVICE_URL: http://embedding-service:5000
+      PGVECTOR_HOST: pgvector-postgres
+      PGVECTOR_DB: embeddings_db
+      PGVECTOR_USER: postgres
+      PGVECTOR_PASSWORD: postgres
+      PGVECTOR_TABLE: text_message_embeddings
+      PGVECTOR_DIMENSION: '384'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_INPUT_TOPIC: text-messages
+      KAFKA_GROUP_ID: flink-embedding-consumer
+      FLINK_PARALLELISM: '1'
+    networks:
+      - rt-llm-network
+    volumes:
+      - ../flink/embedding_job.py:/opt/flink/jobs/embedding_job.py:ro
+    depends_on:
+      flink-jobmanager:
+        condition: service_started
+
+  flink-submit:
+    build:
+      context: ../flink
+    image: rt-llm-flink:latest
+    container_name: flink-submit
+    command: ["bash", "-lc", "/opt/flink/bin/submit_job.sh"]
+    environment:
+      JOBMANAGER_HOST: flink-jobmanager
+      JOBMANAGER_PORT: '8081'
+      FLINK_JOB_FILE: /opt/flink/jobs/embedding_job.py
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      PGVECTOR_HOST: pgvector-postgres
+      PGVECTOR_DB: embeddings_db
+      PGVECTOR_USER: postgres
+      PGVECTOR_PASSWORD: postgres
+      PGVECTOR_TABLE: text_message_embeddings
+      PGVECTOR_DIMENSION: '384'
+      EMBEDDING_SERVICE_URL: http://embedding-service:5000
+      KAFKA_INPUT_TOPIC: text-messages
+      KAFKA_GROUP_ID: flink-embedding-consumer
+    networks:
+      - rt-llm-network
+    volumes:
+      - ../flink/embedding_job.py:/opt/flink/jobs/embedding_job.py:ro
+    depends_on:
+      flink-taskmanager:
+        condition: service_started
+
+networks:
+  rt-llm-network:
+    driver: bridge
+  kafka-network:
+    driver: bridge
+  pgvector-network:
+    driver: bridge
+
+volumes:
+  zookeeper-data:
+  zookeeper-logs:
+  kafka-data:
+  embedding-logs:
+  postgres_data:
+  pgadmin_data:

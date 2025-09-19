@@ -1,0 +1,138 @@
+# Tiltfile for Real-time LLM Ingestion Architecture with Apache Flink
+# Uses docker-compose.yml with Flink, Kafka, embedding service, and pgvector
+
+# Load the docker-compose configuration
+docker_compose([
+    'docker-compose.yml'
+], project_name='architecture2')
+
+# Define resource dependencies for better UI organization
+config.define_string_list('resource-deps', args=False)
+config.set_enabled_resources([
+    'zookeeper',           # Start ZooKeeper first
+    'kafka',              # Then Kafka
+    'postgres',           # Database
+    'pgadmin',           # Database UI
+    'embedding-service',  # Embedding generation service
+    'kafka-ui',          # Kafka UI
+    'flink-jobmanager',  # Flink master
+    'flink-taskmanager', # Flink worker
+    'flink-submit',      # Job submission
+    'ensure-networks',   # Network setup
+    'health-check-embedding-service',
+    'health-check-flink',
+    'health-check-pgvector',
+    'validate-flink-job',
+    'validate-pgvector-writes',
+    'run-e2e-test'
+])
+
+# Ensure networks are created first
+local_resource(
+    name="ensure-networks",
+    cmd="""
+    docker network create rt-llm-network 2>/dev/null || true
+    docker network create kafka-network 2>/dev/null || true
+    docker network create pgvector-network 2>/dev/null || true
+    """,
+    deps=[],
+    ignore=[],
+    auto_init=True
+)
+
+# Add helpful local resources for operations
+local_resource(
+    name="create-topics",
+    cmd="cd ../kafka && python kafka_cli.py create-topic text-messages",
+    deps=[],
+    ignore=["*.log"]
+)
+
+local_resource(
+    name="send-test-message",
+    cmd="cd ../kafka && python kafka_cli.py write text-messages 'Test message for embedding generation via Flink'",
+    deps=["create-topics"],
+    ignore=["*.log"]
+)
+
+local_resource(
+    name="health-check-embedding-service",
+    cmd="echo 'Checking embedding service health...' && curl -f http://localhost:5000/health && echo 'Embedding service healthy'",
+    deps=[],
+    ignore=["*.log"]
+)
+
+local_resource(
+    name="health-check-flink",
+    cmd="echo 'Checking Flink JobManager...' && curl -f http://localhost:8081/overview && echo 'Flink JobManager healthy'",
+    deps=[],
+    ignore=["*.log"]
+)
+
+local_resource(
+    name="health-check-pgvector",
+    cmd="""
+    echo 'Checking pgvector...' && \
+    docker compose exec -T postgres psql -U postgres -d embeddings_db -c 'SELECT version();' && \
+    echo 'pgvector healthy'
+    """,
+    deps=[],
+    ignore=["*.log"]
+)
+
+# Add validation resources to check that writes are working
+local_resource(
+    name="validate-flink-job",
+    cmd="""
+    echo 'Checking Flink job status...' && \
+    curl -s http://localhost:8081/jobs/overview | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    jobs = data.get('jobs', [])
+    running = [job for job in jobs if job.get('state') == 'RUNNING']
+    if running:
+        print('✅ Flink job is running')
+        sys.exit(0)
+    else:
+        print('❌ No running Flink jobs found')
+        sys.exit(1)
+except Exception as e:
+    print(f'❌ Error checking Flink job status: {e}')
+    sys.exit(1)
+"
+    """,
+    deps=["health-check-flink"],
+    ignore=["*.log"]
+)
+
+local_resource(
+    name="validate-pgvector-writes",
+    cmd="""
+    echo 'Checking latest embeddings in pgvector...' && \
+    docker compose exec -T postgres psql -U postgres -d embeddings_db -c \
+    "SELECT id, text, embedding_timestamp, array_length(embedding, 1) as dim FROM text_message_embeddings ORDER BY embedding_timestamp DESC LIMIT 5;"
+    """,
+    deps=["validate-flink-job"],
+    ignore=["*.log"]
+)
+
+# Run full e2e test
+local_resource(
+    name="run-e2e-test",
+    cmd="./e2e_test.sh",
+    deps=[
+        "ensure-networks",
+        "create-topics",
+        "health-check-embedding-service",
+        "health-check-flink",
+        "health-check-pgvector"
+    ],
+    ignore=["*.log"]
+)
+
+# Watch for changes in Flink job
+watch_file('../flink/embedding_job.py')
+watch_file('docker-compose.yml')
+watch_file('../embedding_gen_svc/app.py')
+watch_file('../embedding_gen_svc/config.yaml')
