@@ -1,35 +1,19 @@
-FROM apache/flink:1.17.2-scala_2.12-java11
+### Multi-stage Dockerfile for building and running the Java Flink job
+# Stage 1: Build the fat JAR using Maven
+FROM maven:3.8.6-openjdk-11 AS builder
+WORKDIR /build
+COPY pom.xml ./
+COPY src ./src
+RUN mvn -e -B -DskipTests clean package
 
-USER root
+# Stage 2: Use official Flink image as runtime base
+FROM flink:1.17.2-scala_2.12-java11
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-pip curl \
-    && ln -s /usr/bin/python3 /usr/bin/python \
-    && rm -rf /var/lib/apt/lists/*
+# Put the job jar into flink's usrlib so flink run/submit can find it
+COPY --from=builder /build/target/embedding-pipeline-1.0-SNAPSHOT.jar /opt/flink/usrlib/embedding-pipeline.jar
 
-COPY requirements.txt /opt/flink/requirements.txt
-RUN pip3 install --no-cache-dir -r /opt/flink/requirements.txt
+# Add an entrypoint wrapper that supports a 'submit' command to wait for JobManager then submit
+COPY docker-entrypoint.sh /docker-entrypoint-flink.sh
+RUN chmod +x /docker-entrypoint-flink.sh
 
-# Install Kafka connector jars required for PyFlink KafkaSource
-RUN curl -fsSL https://repo1.maven.org/maven2/org/apache/flink/flink-connector-kafka/1.17.2/flink-connector-kafka-1.17.2.jar \
-    -o /opt/flink/lib/flink-connector-kafka-1.17.2.jar \
-    && curl -fsSL https://repo1.maven.org/maven2/org/apache/flink/flink-connector-base/1.17.2/flink-connector-base-1.17.2.jar \
-    -o /opt/flink/lib/flink-connector-base-1.17.2.jar \
-    && curl -fsSL https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/1.17.2/flink-sql-connector-kafka-1.17.2.jar \
-    -o /opt/flink/lib/flink-sql-connector-kafka-1.17.2.jar \
-    && curl -fsSL https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.2.3/kafka-clients-3.2.3.jar \
-    -o /opt/flink/lib/kafka-clients-3.2.3.jar
-
-WORKDIR /opt/flink
-
-COPY embedding_job.py /opt/flink/jobs/embedding_job.py
-COPY submit_job.sh /opt/flink/bin/submit_job.sh
-RUN chmod +x /opt/flink/bin/submit_job.sh
-
-USER flink
-
-# Set Python-related environment variables
-ENV FLINK_PYTHON=python3 \
-    PYTHONUNBUFFERED=1 \
-    PYTHON_BIN=/usr/bin/python3 \
-    PATH=/usr/local/bin:/usr/bin:/bin:$PATH
+ENTRYPOINT ["/docker-entrypoint-flink.sh"]

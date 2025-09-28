@@ -142,10 +142,8 @@ services:
       context: ../flink
     image: rt-llm-flink:latest
     container_name: flink-submit
-    command: ["bash", "-lc", "/opt/flink/bin/submit_job.sh"]
+    command: ["bash", "-c", "until curl -s flink-jobmanager:8081 > /dev/null; do echo 'Waiting for JobManager to be ready...'; sleep 5; done; sleep 5; flink run -d /opt/flink/jobs/embedding_job.py"]
     environment:
-      JOBMANAGER_HOST: flink-jobmanager
-      JOBMANAGER_PORT: '8081'
       FLINK_JOB_FILE: /opt/flink/jobs/embedding_job.py
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       PGVECTOR_HOST: pgvector-postgres

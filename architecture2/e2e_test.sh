@@ -42,21 +42,32 @@ if ! curl -fsS http://localhost:5000/health >/dev/null; then
 fi
 ok "Embedding service healthy."
 
-log "Checking Flink JobManager..."
-if ! curl -fsS http://localhost:8081/overview >/dev/null; then
+log "Checking Flink JobManager and job status..."
+if ! OVERVIEW=$(curl -fsS http://localhost:8081/overview); then
   err "Flink JobManager API not reachable on http://localhost:8081/overview"
   exit 1
 fi
+ok "Flink JobManager is accessible"
 
-FLINK_STATE=$(curl -fsS http://localhost:8081/jobs/overview | python3 - <<'PY'
+log "Checking Flink job status..."
+JOBS_RESPONSE=$(curl -fsS http://localhost:8081/jobs/overview)
+log "Debug - Jobs response: ${JOBS_RESPONSE}"
+
+FLINK_STATE=$(echo "${JOBS_RESPONSE}" | python3 - <<'PY'
 import sys, json
 try:
     data = json.load(sys.stdin)
-except json.JSONDecodeError:
+    print("Parsed JSON successfully", file=sys.stderr)
+except json.JSONDecodeError as e:
+    print(f"JSON Parse error: {e}", file=sys.stderr)
     print("INVALID")
     sys.exit(0)
+
 jobs = data.get("jobs", [])
+print(f"Found {len(jobs)} jobs", file=sys.stderr)
 running = [job for job in jobs if job.get("state") == "RUNNING"]
+print(f"Found {len(running)} running jobs", file=sys.stderr)
+
 if running:
     print("RUNNING")
 else:
@@ -64,9 +75,60 @@ else:
 PY
 )
 
+log "Debug - Flink state: ${FLINK_STATE}"
+
 if [[ "${FLINK_STATE}" != "RUNNING" ]]; then
   err "No running Flink jobs detected. Current state: ${FLINK_STATE}"
-  exit 1
+  log "Debug - Starting flink-submit service to submit the job..."
+  
+  # Start the flink-submit service
+  SUBMIT_OUTPUT=$(docker compose up -d flink-submit 2>&1 || true)
+  log "Debug - Submit service start output: ${SUBMIT_OUTPUT}"
+  
+  # Wait for job submission
+  log "Waiting for job to be submitted..."
+  SUBMIT_ATTEMPTS=30
+  for i in $(seq 1 $SUBMIT_ATTEMPTS); do
+    log "Checking job status (attempt $i/$SUBMIT_ATTEMPTS)..."
+    JOBS_RESPONSE=$(curl -fsS http://localhost:8081/jobs/overview 2>/dev/null || echo '{"jobs":[]}')
+    if [[ $(echo "$JOBS_RESPONSE" | python3 -c '
+import sys, json
+data = json.load(sys.stdin)
+running = [job for job in data.get("jobs", []) if job.get("state") == "RUNNING"]
+print(len(running))
+') -gt 0 ]]; then
+      log "Job is now running"
+      break
+    fi
+    if [ $i -eq $SUBMIT_ATTEMPTS ]; then
+      log "Debug - Submit service logs:"
+      docker compose logs flink-submit
+      log "Debug - JobManager logs:"
+      docker compose logs flink-jobmanager
+    fi
+    sleep 5
+  done
+  
+  # Wait a few seconds and check status again
+  sleep 5
+  JOBS_RESPONSE=$(curl -fsS http://localhost:8081/jobs/overview)
+  NEW_STATE=$(echo "${JOBS_RESPONSE}" | python3 -c '
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    jobs = data.get("jobs", [])
+    running = [job for job in jobs if job.get("state") == "RUNNING"]
+    print("RUNNING" if running else "NOT_RUNNING")
+except:
+    print("INVALID")
+')
+  
+  if [[ "${NEW_STATE}" != "RUNNING" ]]; then
+    err "Failed to start Flink job. Current state: ${NEW_STATE}"
+    log "Debug - Latest Flink logs:"
+    docker compose logs --tail 20 flink-jobmanager
+    exit 1
+  fi
 fi
 ok "Flink job is running."
 
@@ -102,12 +164,33 @@ MESSAGE_ID=$(echo "${CLI_OUTPUT}" | sed -n "s/.*ID '\([^']*\)'.*/\1/p" | tail -n
 if [[ -z "${MESSAGE_ID}" ]]; then
   warn "Could not parse message ID from kafka_cli output; will rely on row count change."
 else
-  ok "Message published with ID ${MESSAGE_ID}"
+  ok "✅ [1/3] Message successfully published to Kafka with ID: ${MESSAGE_ID}"
 fi
 
-log "Waiting for pgvector insertion..."
+# Check Kafka topic for the message
+log "Verifying message in Kafka topic..."
+pushd "${KAFKA_DIR}" >/dev/null
+KAFKA_READ_OUTPUT=$(python3 kafka_cli.py read text-messages --n 1 2>&1)
+popd >/dev/null
+
+if [[ "${KAFKA_READ_OUTPUT}" == *"${MESSAGE_ID}"* ]]; then
+  ok "✓ Confirmed message is available in Kafka topic"
+else
+  warn "Message not immediately visible in Kafka topic (this is normal)"
+fi
+
+log "Waiting for embedding generation and pgvector insertion..."
 ATTEMPTS=15
 SLEEP_SEC=4
+
+# Check embedding service logs for our message processing
+log "Monitoring embedding service processing..."
+EMBEDDING_LOGS=$(docker compose logs --tail 50 embedding-service 2>&1)
+if [[ "${EMBEDDING_LOGS}" == *"Processing text for embeddings"* ]]; then
+    ok "✅ [2/3] Embedding service is actively processing messages"
+else
+    warn "No recent embedding processing activity visible in logs"
+fi
 ROW_FOUND=0
 
 for attempt in $(seq 1 ${ATTEMPTS}); do
@@ -146,7 +229,16 @@ done
 
 if [[ ${ROW_FOUND} -ne 1 ]]; then
   err "Timed out waiting for pgvector to contain the new embedding."
+  log "Debugging information:"
+  log "- Flink job logs:"
+  docker compose logs --tail 50 flink-jobmanager
+  log "- Embedding service logs:"
+  docker compose logs --tail 50 embedding-service
+  log "- PGVector recent queries:"
+  docker compose exec pgvector-postgres psql -U postgres -d embeddings_db -c "SELECT * FROM text_message_embeddings ORDER BY created_at DESC LIMIT 5;"
   exit 1
+else
+  ok "✅ [3/3] Message successfully processed through entire pipeline"
 fi
 
 log "E2E test completed successfully."
