@@ -81,33 +81,29 @@ services:
     command: jobmanager
     container_name: flink-jobmanager
     environment:
-      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
-      FLINK_PROPERTIES: |
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+      - |
+        FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
-      EMBEDDING_SERVICE_URL: http://embedding-service:5000
-      PGVECTOR_HOST: pgvector-postgres
-      PGVECTOR_DB: embeddings_db
-      PGVECTOR_USER: postgres
-      PGVECTOR_PASSWORD: postgres
-      PGVECTOR_TABLE: text_message_embeddings
-      PGVECTOR_DIMENSION: '384'
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      KAFKA_INPUT_TOPIC: text-messages
-      KAFKA_GROUP_ID: flink-embedding-consumer
-      FLINK_PARALLELISM: '1'
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 1
     ports:
       - "8081:8081"
     networks:
       - rt-llm-network
-    volumes:
-      - ../flink/embedding_job.py:/opt/flink/jobs/embedding_job.py:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/overview"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy
       embedding-service:
-        condition: service_started
+        condition: service_healthy
       postgres:
-        condition: service_started
+        condition: service_healthy
 
   flink-taskmanager:
     build:
@@ -116,52 +112,39 @@ services:
     command: taskmanager
     container_name: flink-taskmanager
     environment:
-      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
-      TASK_MANAGER_NUMBER_OF_TASK_SLOTS: '2'
-      EMBEDDING_SERVICE_URL: http://embedding-service:5000
-      PGVECTOR_HOST: pgvector-postgres
-      PGVECTOR_DB: embeddings_db
-      PGVECTOR_USER: postgres
-      PGVECTOR_PASSWORD: postgres
-      PGVECTOR_TABLE: text_message_embeddings
-      PGVECTOR_DIMENSION: '384'
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      KAFKA_INPUT_TOPIC: text-messages
-      KAFKA_GROUP_ID: flink-embedding-consumer
-      FLINK_PARALLELISM: '1'
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+      - TASK_MANAGER_NUMBER_OF_TASK_SLOTS=2
     networks:
       - rt-llm-network
-    volumes:
-      - ../flink/embedding_job.py:/opt/flink/jobs/embedding_job.py:ro
     depends_on:
       flink-jobmanager:
-        condition: service_started
+        condition: service_healthy
 
   flink-submit:
     build:
       context: ../flink
     image: rt-llm-flink:latest
     container_name: flink-submit
-    command: ["bash", "-c", "until curl -s flink-jobmanager:8081 > /dev/null; do echo 'Waiting for JobManager to be ready...'; sleep 5; done; sleep 5; flink run -d /opt/flink/jobs/embedding_job.py"]
+    command: submit
     environment:
-      FLINK_JOB_FILE: /opt/flink/jobs/embedding_job.py
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      PGVECTOR_HOST: pgvector-postgres
-      PGVECTOR_DB: embeddings_db
-      PGVECTOR_USER: postgres
-      PGVECTOR_PASSWORD: postgres
-      PGVECTOR_TABLE: text_message_embeddings
-      PGVECTOR_DIMENSION: '384'
-      EMBEDDING_SERVICE_URL: http://embedding-service:5000
-      KAFKA_INPUT_TOPIC: text-messages
-      KAFKA_GROUP_ID: flink-embedding-consumer
+      - EMBEDDING_SERVICE_URL=http://embedding-service:5000
+      - PGVECTOR_HOST=pgvector-postgres
+      - PGVECTOR_DB=embeddings_db
+      - PGVECTOR_USER=postgres
+      - PGVECTOR_PASSWORD=postgres
+      - PGVECTOR_TABLE=text_message_embeddings
+      - PGVECTOR_DIMENSION=384
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - KAFKA_INPUT_TOPIC=text-messages
+      - KAFKA_GROUP_ID=flink-embedding-consumer
+      - FLINK_PARALLELISM=1
     networks:
       - rt-llm-network
-    volumes:
-      - ../flink/embedding_job.py:/opt/flink/jobs/embedding_job.py:ro
     depends_on:
       flink-taskmanager:
         condition: service_started
+      flink-jobmanager:
+        condition: service_healthy
 
 networks:
   rt-llm-network:

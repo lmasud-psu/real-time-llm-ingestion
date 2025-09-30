@@ -111,7 +111,7 @@ local_resource(
     cmd="""
     echo 'Checking latest embeddings in pgvector...' && \
     docker compose exec -T postgres psql -U postgres -d embeddings_db -c \
-    "SELECT id, text, embedding_timestamp, array_length(embedding, 1) as dim FROM text_message_embeddings ORDER BY embedding_timestamp DESC LIMIT 5;"
+    "SELECT id, LEFT(text, 50) as text_preview, message_timestamp, embedding_timestamp, vector_dims(embedding) as dim FROM text_message_embeddings ORDER BY embedding_timestamp DESC LIMIT 5;"
     """,
     deps=["validate-flink-job"],
     ignore=["*.log"]

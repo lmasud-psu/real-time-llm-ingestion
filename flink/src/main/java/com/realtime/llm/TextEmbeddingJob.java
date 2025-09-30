@@ -1,6 +1,7 @@
 package com.realtime.llm;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.realtime.llm.function.EmbeddingProcessFunction;
 import com.realtime.llm.model.TextEmbedding;
 import com.realtime.llm.model.TextMessage;
 import com.realtime.llm.service.EmbeddingService;
@@ -11,8 +12,6 @@ import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.ProcessFunction;
-import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +19,6 @@ import java.time.Instant;
 
 public class TextEmbeddingJob {
     private static final Logger LOG = LoggerFactory.getLogger(TextEmbeddingJob.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     public static void main(String[] args) throws Exception {
         // Environment setup
@@ -48,9 +46,6 @@ public class TextEmbeddingJob {
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
 
-        // Create embedding service
-        EmbeddingService embeddingService = new EmbeddingService(embeddingServiceUrl);
-
         // Set up the processing pipeline
         DataStream<String> kafkaStream = env.fromSource(
                 source,
@@ -60,30 +55,7 @@ public class TextEmbeddingJob {
 
         // Parse JSON messages and generate embeddings
         DataStream<TextEmbedding> embeddingStream = kafkaStream
-                .process(new ProcessFunction<String, TextEmbedding>() {
-                    @Override
-                    public void processElement(String value, Context ctx, Collector<TextEmbedding> out) throws Exception {
-                        try {
-                            TextMessage message = objectMapper.readValue(value, TextMessage.class);
-                            LOG.info("📥 Processing message: {}", message.getId());
-
-                            float[] embedding = embeddingService.getEmbedding(message.getText());
-                            LOG.info("✨ Generated embedding for message: {}", message.getId());
-
-                            TextEmbedding textEmbedding = new TextEmbedding(
-                                    message.getId(),
-                                    message.getText(),
-                                    embedding,
-                                    message.getTimestamp(),
-                                    Instant.now()
-                            );
-
-                            out.collect(textEmbedding);
-                        } catch (Exception e) {
-                            LOG.error("Failed to process message: " + value, e);
-                        }
-                    }
-                })
+                .process(new EmbeddingProcessFunction(embeddingServiceUrl))
                 .setParallelism(parallelism);
 
         // Add PgVector sink

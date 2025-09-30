@@ -53,25 +53,24 @@ log "Checking Flink job status..."
 JOBS_RESPONSE=$(curl -fsS http://localhost:8081/jobs/overview)
 log "Debug - Jobs response: ${JOBS_RESPONSE}"
 
-FLINK_STATE=$(echo "${JOBS_RESPONSE}" | python3 - <<'PY'
+FLINK_STATE=$(echo "${JOBS_RESPONSE}" | python3 - 2>/dev/null <<'PY'
 import sys, json
 try:
-    data = json.load(sys.stdin)
-    print("Parsed JSON successfully", file=sys.stderr)
+    input_data = sys.stdin.read()
+    data = json.loads(input_data)
+    
+    jobs = data.get("jobs", [])
+    running = [job for job in jobs if job.get("state") == "RUNNING"]
+
+    if running:
+        print("RUNNING")
+    else:
+        print("NOT_RUNNING")
+        
 except json.JSONDecodeError as e:
-    print(f"JSON Parse error: {e}", file=sys.stderr)
     print("INVALID")
-    sys.exit(0)
-
-jobs = data.get("jobs", [])
-print(f"Found {len(jobs)} jobs", file=sys.stderr)
-running = [job for job in jobs if job.get("state") == "RUNNING"]
-print(f"Found {len(running)} running jobs", file=sys.stderr)
-
-if running:
-    print("RUNNING")
-else:
-    print("NOT_RUNNING")
+except Exception as e:
+    print("ERROR")
 PY
 )
 
@@ -133,7 +132,7 @@ fi
 ok "Flink job is running."
 
 log "Checking pgvector connectivity..."
-COUNT_BEFORE_RAW=$(docker compose exec -T pgvector-postgres \
+COUNT_BEFORE_RAW=$(docker compose exec -T postgres \
   psql -U postgres -d embeddings_db -At -c "SELECT COUNT(*) FROM text_message_embeddings;" 2>&1 || true)
 
 if [[ "${COUNT_BEFORE_RAW}" == *"does not exist"* ]]; then
@@ -199,7 +198,7 @@ for attempt in $(seq 1 ${ATTEMPTS}); do
     QUERY+=" WHERE id='${MESSAGE_ID}'"
   fi
 
-  RESULT=$(docker compose exec -T pgvector-postgres \
+  RESULT=$(docker compose exec -T postgres \
     psql -U postgres -d embeddings_db -At -c "${QUERY};" 2>&1 || true)
 
   if [[ "${RESULT}" == *"does not exist"* ]]; then
@@ -235,7 +234,7 @@ if [[ ${ROW_FOUND} -ne 1 ]]; then
   log "- Embedding service logs:"
   docker compose logs --tail 50 embedding-service
   log "- PGVector recent queries:"
-  docker compose exec pgvector-postgres psql -U postgres -d embeddings_db -c "SELECT * FROM text_message_embeddings ORDER BY created_at DESC LIMIT 5;"
+  docker compose exec postgres psql -U postgres -d embeddings_db -c "SELECT * FROM text_message_embeddings ORDER BY embedding_timestamp DESC LIMIT 5;"
   exit 1
 else
   ok "✅ [3/3] Message successfully processed through entire pipeline"
