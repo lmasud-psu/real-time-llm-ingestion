@@ -1,0 +1,35 @@
+# Configuration file for Text Writer Service
+
+# Kafka Configuration
+kafka:
+  bootstrap_servers: "kafka:29092"
+  input_topic: "text-messages"
+  consumer_group: "text-writer-service"
+  auto_offset_reset: "latest"
+  enable_auto_commit: true
+
+# PostgreSQL Configuration
+database:
+  host: "postgres"
+  port: 5432
+  name: "text_messages_db"
+  user: "postgres"
+  password: "postgres"
+  connection_pool_size: 10
+
+# Flask Configuration
+flask:
+  host: "0.0.0.0"
+  port: 5001
+  debug: false
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Service Configuration
+service:
+  name: "text-writer-service"
+  version: "1.0.0"
+  health_check_interval: 30  # seconds

@@ -1,0 +1,96 @@
+services:
+  zookeeper:
+    container_name: architecture3-zookeeper
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: zookeeper
+    ports:
+      - "42181:2181"
+    networks:
+      - rt-llm-network
+
+  kafka:
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: kafka
+    container_name: architecture3-kafka
+    networks:
+      - rt-llm-network
+
+  kafka-ui:
+    extends:
+      file: ../kafka/docker-compose.yml
+      service: kafka-ui
+    container_name: architecture3-kafka-ui
+    networks:
+      - rt-llm-network
+    depends_on:
+      - kafka
+
+  # PostgreSQL for text_writer_svc
+  postgres:
+    image: postgres:15
+    container_name: architecture3-postgres
+    environment:
+      POSTGRES_DB: text_messages_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../text_writer_svc/migrations:/docker-entrypoint-initdb.d
+    networks:
+      rt-llm-network:
+        aliases:
+          - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d text_messages_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Text Writer Service
+  text-writer-service:
+    build:
+      context: ../text_writer_svc
+    container_name: architecture3-text-writer-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    ports:
+      - "5002:5001"
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: text_messages_db
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+    volumes:
+      - ../text_writer_svc/config.yaml:/app/config.yaml
+    networks:
+      rt-llm-network:
+        aliases:
+          - text-writer-service
+      kafka-network:
+        aliases:
+          - text-writer-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  zookeeper-data:
+  zookeeper-logs:
+  kafka-data:
+
+networks:
+  rt-llm-network:
+    external: true
+  kafka-network:
+    driver: bridge
