@@ -1,0 +1,5 @@
+# Arxiv Abstracts 2021 Dataset Streaming Dependencies
+# Install with: pip install -r requirements.txt
+
+pandas>=2.0.0
+huggingface_hub>=0.16.0

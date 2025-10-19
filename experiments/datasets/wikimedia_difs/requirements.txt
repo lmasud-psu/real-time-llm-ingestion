@@ -1,0 +1,24 @@
+# Wikipedia Streaming API Requirements
+
+# Core dependencies
+datasets>=2.14.0
+transformers>=4.21.0
+
+# Data processing
+pandas>=1.5.0
+numpy>=1.24.0
+
+# Text processing and utilities
+regex>=2022.7.9
+tqdm>=4.64.0
+
+# Optional: for advanced text processing
+nltk>=3.8
+spacy>=3.4.0
+
+# Development and testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Utilities
+requests>=2.28.0
