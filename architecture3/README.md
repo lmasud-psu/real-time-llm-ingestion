@@ -1,21 +1,39 @@
-# Architecture 3: Text Writer Service Pipeline
+# Architecture 3 - CQRS Real-time Text Processing Pipeline
 
-This architecture demonstrates a simple Kafka-to-PostgreSQL text ingestion pipeline using the Text Writer Service.
+This architecture implements a complete real-time text processing pipeline with CQRS (Command Query Responsibility Segregation) pattern, featuring Kafka message streaming, PostgreSQL storage, and automatic embedding generation.
 
 ## Architecture Overview
 
 ```
-Kafka Topic (text-messages) → Text Writer Service → PostgreSQL (text_messages table)
-                                      ↓
-                               REST API + Health Monitoring
+Kafka Producer → Kafka → Text Writer Service → PostgreSQL → CQRS Embedding Service → Vector Database
+     ↓              ↓            ↓                 ↓                    ↓                    ↓
+  Messages      Queue       Process &          Store Text         Generate            Vector
+                           Transform                              Embeddings          Search
 ```
 
-## Components
+## Services
 
-- **Apache Kafka**: Message streaming platform
-- **Text Writer Service**: Flask-based microservice that consumes Kafka messages and stores them in PostgreSQL
-- **PostgreSQL**: Database for storing text messages
-- **Kafka UI**: Web interface for monitoring Kafka topics and messages
+### 1. **Kafka Infrastructure** (Extended from `../kafka/`)
+- **Zookeeper**: Kafka cluster coordination
+- **Kafka**: Message streaming platform
+- **Kafka UI**: Web interface for monitoring
+
+### 2. **Text Writer Service**
+- **Purpose**: Consumes Kafka messages and writes to PostgreSQL
+- **Port**: 5002 (external) → 5001 (internal)
+- **Features**: REST API, health checks, message processing
+
+### 3. **PostgreSQL with pgvector**
+- **Purpose**: Stores text messages and vector embeddings
+- **Port**: 5434 (external) → 5432 (internal)
+- **Database**: `realtime_llm`
+- **Extensions**: pgvector for vector operations
+
+### 4. **CQRS Embedding Service**
+- **Purpose**: Watches PostgreSQL changes and generates embeddings
+- **Port**: 5003
+- **Pattern**: Command Query Responsibility Segregation
+- **Features**: Mock embedding generation, similarity search
 
 ## Quick Start
 
@@ -223,6 +241,72 @@ This architecture can be combined with other architectures in the project:
 - Use the same Kafka cluster for multiple consumers
 - Connect to shared PostgreSQL instances
 - Integrate with the embedding generation and vector storage pipelines
+
+## CQRS Pattern Implementation
+
+The CQRS (Command Query Responsibility Segregation) pattern is implemented through:
+
+### Command Side (Write Operations)
+- **Text Writer Service**: Handles incoming messages and writes to PostgreSQL
+- **Direct PostgreSQL writes**: Fast, optimized for write operations
+- **Message validation and transformation**
+
+### Query Side (Read Operations)  
+- **CQRS Embedding Service**: Reads PostgreSQL changes and generates embeddings
+- **Polling-based approach**: Watches for new text entries
+- **Vector storage**: Optimized for similarity searches
+- **Separate read models**: Embeddings table optimized for queries
+
+### Benefits
+- **Scalability**: Write and read operations can be scaled independently
+- **Performance**: Each side optimized for its specific use case
+- **Flexibility**: Easy to add new read models without affecting writes
+- **Fault Tolerance**: Failure in one side doesn't affect the other
+
+## Testing
+
+### End-to-End Testing
+```bash
+# Run comprehensive e2e tests
+./e2e_test.sh
+```
+
+The e2e test covers:
+- ✅ Service health checks
+- ✅ Database connectivity and schema
+- ✅ API message creation and retrieval
+- ✅ Kafka message processing
+- ✅ CQRS embedding generation
+- ✅ Vector similarity search
+- ✅ Complete pipeline integration
+
+### Manual Testing
+
+1. **Create messages via API**:
+```bash
+curl -X POST http://localhost:5002/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Test message"}'
+```
+
+2. **Send Kafka messages**:
+```bash
+echo '{"id": "test-123", "text": "Hello Kafka"}' | \
+docker compose exec -T kafka kafka-console-producer \
+  --topic text-messages --bootstrap-server localhost:9092
+```
+
+3. **Search embeddings**:
+```bash
+curl -X POST http://localhost:5003/embeddings/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "machine learning", "limit": 5}'
+```
+
+4. **Monitor processing**:
+```bash
+curl http://localhost:5003/status
+```
 
 ## Performance Considerations
 

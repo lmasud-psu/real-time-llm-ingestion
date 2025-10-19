@@ -1,0 +1,25 @@
+# CQRS Embedding Generation Service Configuration
+
+database:
+  host: postgres
+  port: 5432
+  database: realtime_llm
+  user: postgres
+  password: password
+
+embedding:
+  model_name: "all-MiniLM-L6-v2"  # Lightweight SentenceTransformer model
+  dimension: 384  # Embedding dimension for all-MiniLM-L6-v2
+
+polling:
+  interval_seconds: 5  # How often to check for new messages
+  batch_size: 10  # Number of messages to process in each batch
+  error_retry_seconds: 30  # Retry interval on errors
+
+# Auto-start the processor when the service starts
+auto_start: true
+
+# Logging configuration
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

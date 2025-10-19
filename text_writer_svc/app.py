@@ -30,11 +30,25 @@ class TextWriterService:
         self._setup_routes()
         
     def _load_config(self, config_path: str) -> Dict[str, Any]:
-        """Load configuration from YAML file"""
+        """Load configuration from YAML file with environment variable overrides"""
         try:
             with open(config_path, 'r') as file:
                 config = yaml.safe_load(file)
             logger.info(f"Configuration loaded from {config_path}")
+            
+            # Override with environment variables if available
+            if 'DATABASE_HOST' in os.environ:
+                config['database']['host'] = os.environ['DATABASE_HOST']
+            if 'DATABASE_PORT' in os.environ:
+                config['database']['port'] = int(os.environ['DATABASE_PORT'])
+            if 'DATABASE_NAME' in os.environ:
+                config['database']['name'] = os.environ['DATABASE_NAME']
+            if 'DATABASE_USER' in os.environ:
+                config['database']['user'] = os.environ['DATABASE_USER']
+            if 'DATABASE_PASSWORD' in os.environ:
+                config['database']['password'] = os.environ['DATABASE_PASSWORD']
+            
+            logger.info("Environment variable overrides applied")
             return config
         except FileNotFoundError:
             logger.error(f"Configuration file {config_path} not found")
@@ -131,7 +145,7 @@ class TextWriterService:
                 try:
                     with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                         cursor.execute("""
-                            SELECT id, message, created_at, processed_at 
+                            SELECT id, content as message, source, created_at, processed_at 
                             FROM text_messages 
                             ORDER BY processed_at DESC 
                             LIMIT %s OFFSET %s
@@ -163,7 +177,7 @@ class TextWriterService:
                 try:
                     with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                         cursor.execute("""
-                            SELECT id, message, created_at, processed_at 
+                            SELECT id, content as message, source, created_at, processed_at 
                             FROM text_messages 
                             WHERE id = %s
                         """, (message_id,))
@@ -191,7 +205,7 @@ class TextWriterService:
                 message_id = data.get('id', str(uuid.uuid4()))
                 message_content = data['message']
                 
-                self._store_message(message_id, message_content)
+                self._store_message(message_id, message_content, 'api')
                 
                 return jsonify({
                     "id": message_id,
@@ -245,16 +259,16 @@ class TextWriterService:
                 logger.error(f"Failed to get stats: {e}")
                 return jsonify({"error": str(e)}), 500
     
-    def _store_message(self, message_id: str, message_content: str):
+    def _store_message(self, message_id: str, message_content: str, source: str = 'kafka'):
         """Store a message in the database"""
         conn = self.db_pool.getconn()
         try:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO text_messages (id, message) 
-                    VALUES (%s, %s)
+                    INSERT INTO text_messages (id, content, source) 
+                    VALUES (%s, %s, %s)
                     ON CONFLICT (id) DO NOTHING
-                """, (message_id, message_content))
+                """, (message_id, message_content, source))
                 conn.commit()
                 logger.info(f"Stored message: {message_id}")
         except Exception as e:

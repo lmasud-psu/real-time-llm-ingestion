@@ -12,9 +12,9 @@ kafka:
 database:
   host: "postgres"
   port: 5432
-  name: "text_messages_db"
+  name: "realtime_llm"
   user: "postgres"
-  password: "postgres"
+  password: "password"
   connection_pool_size: 10
 
 # Flask Configuration

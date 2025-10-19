@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  cqrs-embedding-gen:
+    build: .
+    container_name: cqrs-embedding-gen
+    ports:
+      - "5003:5003"
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
+    networks:
+      - realtime-llm-network
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: postgres-cqrs
+    environment:
+      POSTGRES_DB: realtime_llm
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - realtime-llm-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  realtime-llm-network:
+    driver: bridge

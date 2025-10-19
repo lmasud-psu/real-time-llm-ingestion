@@ -1,10 +1,14 @@
 -- Text Writer Service Database Schema
 -- This script creates the text_messages table and related indexes
 
--- Create the text_messages table
+-- Enable pgvector extension (in case it's needed later)
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Create the text_messages table (compatible with CQRS embedding service)
 CREATE TABLE IF NOT EXISTS text_messages (
     id UUID PRIMARY KEY,
-    message TEXT NOT NULL,
+    content TEXT NOT NULL,  -- Changed from 'message' to 'content' for compatibility
+    source VARCHAR(255) DEFAULT 'kafka',  -- Track message source
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -17,7 +21,8 @@ CREATE INDEX IF NOT EXISTS idx_text_messages_processed_at ON text_messages(proce
 CREATE OR REPLACE VIEW recent_text_messages AS
 SELECT 
     id,
-    message,
+    content as message,
+    source,
     created_at,
     processed_at
 FROM text_messages

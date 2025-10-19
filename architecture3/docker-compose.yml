@@ -27,25 +27,26 @@ services:
     depends_on:
       - kafka
 
-  # PostgreSQL for text_writer_svc
+  # PostgreSQL with pgvector for text_writer_svc and embeddings
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg15
     container_name: architecture3-postgres
     environment:
-      POSTGRES_DB: text_messages_db
+      POSTGRES_DB: realtime_llm
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: password
     ports:
       - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../text_writer_svc/migrations:/docker-entrypoint-initdb.d
+      - ../cqrs_embedding_gen_svc/init.sql:/docker-entrypoint-initdb.d/init_embeddings.sql
     networks:
       rt-llm-network:
         aliases:
           - postgres
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d text_messages_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d realtime_llm"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -65,9 +66,9 @@ services:
     environment:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_NAME: text_messages_db
+      DATABASE_NAME: realtime_llm
       DATABASE_USER: postgres
-      DATABASE_PASSWORD: postgres
+      DATABASE_PASSWORD: password
     volumes:
       - ../text_writer_svc/config.yaml:/app/config.yaml
     networks:
@@ -82,6 +83,38 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  # CQRS Embedding Generation Service
+  cqrs-embedding-gen:
+    build:
+      context: ../cqrs_embedding_gen_svc
+      dockerfile: Dockerfile.mock
+    container_name: architecture3-cqrs-embedding-gen
+    depends_on:
+      postgres:
+        condition: service_healthy
+      text-writer-service:
+        condition: service_healthy
+    ports:
+      - "5003:5003"
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: realtime_llm
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: password
+    volumes:
+      - ../cqrs_embedding_gen_svc/config.yaml:/app/config.yaml
+    networks:
+      rt-llm-network:
+        aliases:
+          - cqrs-embedding-gen
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
 
 volumes:
   postgres_data:

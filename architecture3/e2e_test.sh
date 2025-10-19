@@ -1,17 +1,18 @@
 #!/bin/bash
 
 # Architecture 3 End-to-End Test Script
-# Tests: Kafka → Text Writer Service → PostgreSQL pipeline
+# Tests: Kafka → Text Writer Service → PostgreSQL → CQRS Embedding Service pipeline
 
 set -e
 
 BASE_URL="http://localhost:5002"
+EMBEDDING_URL="http://localhost:5003"
 KAFKA_URL="http://localhost:8080"
 POSTGRES_HOST="localhost"
 POSTGRES_PORT="5434"
-POSTGRES_DB="text_messages_db"
+POSTGRES_DB="realtime_llm"
 POSTGRES_USER="postgres"
-POSTGRES_PASSWORD="postgres"
+POSTGRES_PASSWORD="password"
 
 log() {
     echo "[E2E] $1"
@@ -43,29 +44,55 @@ fi
 
 # Test 2: Database Connectivity
 log "Testing PostgreSQL connectivity..."
-if docker compose exec postgres pg_isready -U postgres -d text_messages_db > /dev/null 2>&1; then
+if docker compose exec postgres pg_isready -U postgres -d realtime_llm > /dev/null 2>&1; then
     ok "PostgreSQL is accessible"
 else
     err "PostgreSQL connection failed"
     exit 1
 fi
 
-# Test 3: Check table exists
-log "Checking if text_messages table exists..."
-TABLE_EXISTS=$(docker compose exec postgres psql -U postgres -d text_messages_db -t -c "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'text_messages');" | xargs)
-if [ "${TABLE_EXISTS}" = "t" ]; then
+# Test 3: CQRS Embedding Service Health Check
+log "Testing CQRS Embedding Service health..."
+if curl -fsS "${EMBEDDING_URL}/health" > /dev/null; then
+    ok "CQRS Embedding Service is healthy"
+else
+    err "CQRS Embedding Service health check failed"
+    exit 1
+fi
+
+# Test 4: Check tables exist
+log "Checking if required tables exist..."
+TEXT_TABLE_EXISTS=$(docker compose exec postgres psql -U postgres -d realtime_llm -t -c "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'text_messages');" | xargs)
+if [ "${TEXT_TABLE_EXISTS}" = "t" ]; then
     ok "text_messages table exists"
 else
     err "text_messages table does not exist"
     exit 1
 fi
 
-# Test 4: Get initial message count
+EMBEDDING_TABLE_EXISTS=$(docker compose exec postgres psql -U postgres -d realtime_llm -t -c "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'text_embeddings');" | xargs)
+if [ "${EMBEDDING_TABLE_EXISTS}" = "t" ]; then
+    ok "text_embeddings table exists"
+else
+    err "text_embeddings table does not exist"
+    exit 1
+fi
+
+# Test 5: Get initial message count
 log "Getting initial message count..."
-INITIAL_COUNT=$(docker compose exec postgres psql -U postgres -d text_messages_db -t -c "SELECT COUNT(*) FROM text_messages;" | xargs)
+INITIAL_COUNT=$(docker compose exec postgres psql -U postgres -d realtime_llm -t -c "SELECT COUNT(*) FROM text_messages;" | xargs)
 log "Initial message count: ${INITIAL_COUNT}"
 
-# Test 5: Create a message via API
+# Test 6: Start CQRS Embedding Processor
+log "Starting CQRS embedding processor..."
+PROCESSOR_START_RESPONSE=$(curl -fsS -X POST "${EMBEDDING_URL}/start")
+if echo "${PROCESSOR_START_RESPONSE}" | grep -q "started\|running"; then
+    ok "CQRS embedding processor started"
+else
+    log "Processor may already be running: ${PROCESSOR_START_RESPONSE}"
+fi
+
+# Test 7: Create a message via API
 log "Creating a test message via API..."
 TEST_MESSAGE="Test message $(date '+%Y-%m-%d %H:%M:%S')"
 TEST_ID=$(generate_uuid)
@@ -82,10 +109,10 @@ else
     exit 1
 fi
 
-# Test 6: Verify message in database
+# Test 8: Verify message in database
 log "Verifying message was stored in database..."
 sleep 2  # Give it a moment to be stored
-DB_MESSAGE=$(docker compose exec postgres psql -U postgres -d text_messages_db -t -c "SELECT message FROM text_messages WHERE id = '${TEST_ID}';" | xargs)
+DB_MESSAGE=$(docker compose exec postgres psql -U postgres -d realtime_llm -t -c "SELECT content FROM text_messages WHERE id = '${TEST_ID}';" | xargs)
 
 if [ -n "${DB_MESSAGE}" ] && [ "${DB_MESSAGE}" = "${TEST_MESSAGE}" ]; then
     ok "Message found in database: ${DB_MESSAGE}"
@@ -93,6 +120,28 @@ else
     err "Message not found in database or content mismatch"
     echo "Expected: ${TEST_MESSAGE}"
     echo "Got: ${DB_MESSAGE}"
+    exit 1
+fi
+
+# Test 9: Wait for embedding to be generated
+log "Waiting for embedding to be generated (up to 30 seconds)..."
+EMBEDDING_TIMEOUT=30
+EMBEDDING_FOUND=false
+
+for i in $(seq 1 $EMBEDDING_TIMEOUT); do
+    EMBEDDING_COUNT=$(docker compose exec postgres psql -U postgres -d realtime_llm -t -c "SELECT COUNT(*) FROM text_embeddings WHERE text_content = '${TEST_MESSAGE}';" | xargs)
+    
+    if [ "${EMBEDDING_COUNT}" -gt 0 ]; then
+        ok "Embedding generated for test message"
+        EMBEDDING_FOUND=true
+        break
+    fi
+    
+    sleep 1
+done
+
+if [ "${EMBEDDING_FOUND}" = false ]; then
+    err "Embedding was not generated within ${EMBEDDING_TIMEOUT} seconds"
     exit 1
 fi
 
@@ -115,7 +164,7 @@ TIMEOUT=30
 PROCESSED=false
 
 for i in $(seq 1 $TIMEOUT); do
-    KAFKA_DB_MESSAGE=$(docker compose exec postgres psql -U postgres -d text_messages_db -t -c "SELECT message FROM text_messages WHERE id = '${KAFKA_TEST_ID}';" | xargs)
+    KAFKA_DB_MESSAGE=$(docker compose exec postgres psql -U postgres -d realtime_llm -t -c "SELECT content FROM text_messages WHERE id = '${KAFKA_TEST_ID}';" | xargs)
     
     if [ -n "${KAFKA_DB_MESSAGE}" ]; then
         ok "Kafka message processed and stored: ${KAFKA_DB_MESSAGE}"
@@ -131,9 +180,25 @@ if [ "${PROCESSED}" = false ]; then
     exit 1
 fi
 
-# Test 8: Get final message count
+# Test 11: Test embedding search functionality
+log "Testing embedding search functionality..."
+SEARCH_RESPONSE=$(curl -fsS -X POST "${EMBEDDING_URL}/embeddings/search" \
+    -H "Content-Type: application/json" \
+    -d "{\"query\":\"test message\",\"limit\":5}")
+
+if echo "${SEARCH_RESPONSE}" | grep -q "results"; then
+    ok "Embedding search functionality works"
+    SEARCH_RESULTS_COUNT=$(echo "${SEARCH_RESPONSE}" | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data.get('results', [])))")
+    log "Search returned ${SEARCH_RESULTS_COUNT} results"
+else
+    err "Embedding search failed"
+    echo "Response: ${SEARCH_RESPONSE}"
+    exit 1
+fi
+
+# Test 12: Get final message count
 log "Getting final message count..."
-FINAL_COUNT=$(docker compose exec postgres psql -U postgres -d text_messages_db -t -c "SELECT COUNT(*) FROM text_messages;" | xargs)
+FINAL_COUNT=$(docker compose exec postgres psql -U postgres -d realtime_llm -t -c "SELECT COUNT(*) FROM text_messages;" | xargs)
 log "Final message count: ${FINAL_COUNT}"
 
 EXPECTED_COUNT=$((INITIAL_COUNT + 2))
@@ -144,7 +209,7 @@ else
     exit 1
 fi
 
-# Test 9: Test API endpoints
+# Test 13: Test API endpoints
 log "Testing API endpoints..."
 
 # Test list messages
@@ -173,7 +238,7 @@ fi
 
 # Clean up test messages (optional)
 log "Cleaning up test messages..."
-docker compose exec postgres psql -U postgres -d text_messages_db -c "DELETE FROM text_messages WHERE id IN ('${TEST_ID}', '${KAFKA_TEST_ID}');" > /dev/null
+docker compose exec postgres psql -U postgres -d realtime_llm -c "DELETE FROM text_messages WHERE id IN ('${TEST_ID}', '${KAFKA_TEST_ID}');" > /dev/null 2>&1 || true
 ok "Test messages cleaned up"
 
 log "🎉 All tests passed! Architecture 3 is working correctly."
