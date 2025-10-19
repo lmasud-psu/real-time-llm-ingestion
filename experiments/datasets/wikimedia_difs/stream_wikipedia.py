@@ -14,16 +14,56 @@ import re
 
 def estimate_tokens(text: str) -> int:
     """
-    Estimate token count for a given text.
-    Uses a simple approximation: ~4 characters per token (GPT-like tokenization).
+    Estimate the number of tokens in text.
+    Uses a simple heuristic: 1 token ≈ 4 characters.
     
     Args:
-        text: Input text string
+        text: Input text to estimate tokens for
         
     Returns:
         Estimated number of tokens
     """
-    return len(text) // 4
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+
+def get_language_code(language: str) -> str:
+    """
+    Convert language name or code to standardized language code.
+    
+    Args:
+        language: Language name or code
+        
+    Returns:
+        Standardized language code (fallback to 'en' if unknown)
+    """
+    language = language.lower().strip()
+    
+    # Language code mappings
+    language_map = {
+        'en': 'en',
+        'english': 'en',
+        'simple': 'simple',
+        'es': 'es',
+        'spanish': 'es',
+        'fr': 'fr',
+        'french': 'fr',
+        'de': 'de',
+        'german': 'de',
+        'it': 'it',
+        'italian': 'it',
+        'pt': 'pt',
+        'portuguese': 'pt',
+        'ru': 'ru',
+        'russian': 'ru',
+        'ja': 'ja',
+        'japanese': 'ja',
+        'zh': 'zh',
+        'chinese': 'zh',
+    }
+    
+    return language_map.get(language, 'en')  # Default to English
 
 
 def clean_wikipedia_text(text: str) -> str:
