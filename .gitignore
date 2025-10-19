@@ -7,6 +7,7 @@ env/
 ENV/
 env.bak/
 venv.bak/
+/experiments/experiment_venv/
 
 # Python
 __pycache__/
@@ -136,3 +137,26 @@ node_modules/
 # Temporary files
 *.tmp
 *.temp
+
+# Experiment Results
+/experiments/experiment_results/
+/experiments/smoke_test_results_*.csv
+/experiments/final_ingestion_results_*.csv
+/experiments/ingestion_results_*.csv
+/experiments/demo_experiment_results.csv
+
+# Dataset Files
+/experiments/datasets/*/venv/
+/experiments/datasets/*/.cache/
+/experiments/datasets/*/data/
+/experiments/datasets/cc_news/*.parquet
+/experiments/datasets/arxiv_abstracts/*.jsonl.gz
+/experiments/datasets/arxiv_abstracts/arxiv-abstracts-2021.jsonl.gz
+/experiments/datasets/wikimedia_difs/wikipedia_*.json
+/experiments/datasets/smoke/*.txt
+/experiments/datasets/smoke/*.jsonl
+*.parquet
+*.jsonl.gz
+*.jsonl
+*.arrow
+*.feather
