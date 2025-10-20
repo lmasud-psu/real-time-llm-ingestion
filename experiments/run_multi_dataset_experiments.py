@@ -323,13 +323,14 @@ class ExperimentRunner:
     
     def _wait_for_cqrs_processing(self, produced_ids: List[str], timeout_s: int) -> set:
         """Wait for CQRS service to process messages and return processed IDs."""
-        print(f"⏳ Waiting up to {timeout_s}s for CQRS processing...")
-        
         processed_ids = set()
-        deadline = time.time() + timeout_s
+        elapsed = 0
+        check_interval = 5  # Check every 5 seconds
         last_count = 0
         
-        while time.time() < deadline:
+        print(f"⏳ Starting CQRS processing check (every {check_interval}s up to {timeout_s}s)...")
+        
+        while elapsed < timeout_s:
             try:
                 conn = get_pg_conn()
                 for msg_id in produced_ids:
@@ -340,19 +341,26 @@ class ExperimentRunner:
                 conn.close()
                 
                 current_count = len(processed_ids)
-                if current_count > last_count:
-                    print(f"📈 CQRS processed: {current_count}/{len(produced_ids)}")
-                    last_count = current_count
+                print(f"⏳ {elapsed}s/{timeout_s}s - CQRS processed: {current_count}/{len(produced_ids)}")
                 
                 if current_count >= len(produced_ids):
+                    print(f"✅ All messages processed in {elapsed}s!")
                     break
+                
+                last_count = current_count
                     
             except Exception as e:
-                print(f"❌ Database check error: {e}")
+                print(f"❌ Database check error at {elapsed}s: {e}")
                 
-            time.sleep(2)  # Check every 2 seconds
+            time.sleep(check_interval)
+            elapsed += check_interval
         
-        print(f"🏁 Final CQRS processing: {len(processed_ids)}/{len(produced_ids)}")
+        final_count = len(processed_ids)
+        if final_count < len(produced_ids):
+            print(f"⚠️  CQRS processing incomplete after {elapsed}s: {final_count}/{len(produced_ids)}")
+        else:
+            print(f"🏁 CQRS processing complete: {final_count}/{len(produced_ids)}")
+        
         return processed_ids
 
 
