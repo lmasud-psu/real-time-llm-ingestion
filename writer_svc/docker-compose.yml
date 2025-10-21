@@ -2,11 +2,12 @@ version: '3.8'
 
 services:
   writer-service:
-    build: .
+    build: 
+      context: .
+      network: host
     ports:
       - "5001:5000"
     volumes:
-      - ./lancedb_data:/app/lancedb_data
       - ./config.yaml:/app/config.yaml:ro
     environment:
       - FLASK_ENV=production
