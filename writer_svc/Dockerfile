@@ -20,9 +20,6 @@ COPY . .
 # Install database packages conditionally (avoiding version conflicts)
 RUN pip install --no-cache-dir psycopg2-binary==2.9.7 || echo "PostgreSQL package installation failed, continuing..."
 
-# Try to install LanceDB with compatible versions
-RUN pip install --no-cache-dir "numpy>=1.21,<1.25" "pandas>=1.3,<2.1" lancedb==0.5.0 || echo "LanceDB package installation failed, continuing..."
-
 # Test basic imports
 RUN python -c "import flask, kafka, yaml, requests; print('Basic imports successful')"
 

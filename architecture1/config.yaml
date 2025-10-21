@@ -6,16 +6,13 @@ kafka:
   group_id: "writer-group"
 
 database:
-  type: "${DATABASE_TYPE}"
+  type: "postgres"
   postgres:
     host: "${DATABASE_HOST}"
     port: ${DATABASE_PORT}
     database: "${DATABASE_NAME}"
     user: "${DATABASE_USER}"
     password: "${DATABASE_PASSWORD}"
-    table_name: "embeddings"
-  lancedb:
-    data_dir: "/app/lancedb_data"
     table_name: "embeddings"
 
 service:

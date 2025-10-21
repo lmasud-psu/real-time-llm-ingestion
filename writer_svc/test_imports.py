@@ -40,13 +40,6 @@ def test_imports():
         
         logger.info("Testing database adapters...")
         
-        # Test LanceDB
-        try:
-            import lancedb
-            logger.info("✅ LanceDB imported successfully")
-        except ImportError as e:
-            logger.warning(f"⚠️ LanceDB not available: {e}")
-        
         # Test PostgreSQL
         try:
             import psycopg2
@@ -59,13 +52,6 @@ def test_imports():
         # Test database factory
         from databases.database_factory import DatabaseFactory
         logger.info("✅ DatabaseFactory imported successfully")
-        
-        # Test LanceDB adapter
-        try:
-            from databases.lancedb_adapter import LanceDBAdapter
-            logger.info("✅ LanceDBAdapter imported successfully")
-        except ImportError as e:
-            logger.warning(f"⚠️ LanceDBAdapter not available: {e}")
         
         # Test PostgreSQL adapter
         try:

@@ -22,10 +22,9 @@ A centralized architecture for real-time LLM ingestion using Kafka, embedding ge
 ### Core Infrastructure
 - **Kafka Cluster**: Zookeeper, Kafka, Schema Registry, Kafka Connect, Kafka UI
 - **Embedding Service**: Generates embeddings from text messages (Port 5000)
-- **Writer Service**: Consumes embeddings and writes to vector databases (Port 5001)
+- **Writer Service**: Consumes embeddings and writes to PostgreSQL database (Port 5001)
 
-### Database Options
-- **LanceDB**: File-based vector database (default)
+### Database
 - **PostgreSQL + pgvector**: Relational database with vector extension
 
 ## Quick Start
@@ -38,14 +37,8 @@ cd architecture1
 
 ### 2. Start Architecture
 
-**For LanceDB (default):**
 ```bash
 tilt up
-```
-
-**For PostgreSQL:**
-```bash
-DATABASE_TYPE=postgres tilt up
 ```
 
 ### 3. Verify Services
@@ -65,13 +58,11 @@ tilt trigger end-to-end-validation
 ### Writer Service
 - **Port**: 5001 (external), 5000 (internal)
 - **Auto-start**: Automatically begins consuming from Kafka on startup
-- **Database Support**: LanceDB and PostgreSQL with pgvector
+- **Database Support**: PostgreSQL with pgvector
 - **Message Format**: Expects JSON with `id`, `text`, `embedding`, `timestamp`, `source`, and `table_name`
 
 ### Database Configuration
-The writer service automatically detects the database type from environment variables:
-- `DATABASE_TYPE`: `lancedb` or `postgres`
-- Database-specific connection parameters are automatically configured
+The writer service uses PostgreSQL with pgvector extension.
 
 ## Available Commands
 
@@ -81,9 +72,7 @@ The writer service automatically detects the database type from environment vari
 - `tilt trigger validate-writer-service` - Validate writer service (port 5001)
 
 ### Database Operations
-- `tilt trigger validate-lancedb-writes` - Test LanceDB writes
 - `tilt trigger validate-postgres-writes` - Test PostgreSQL writes
-- `tilt trigger end-to-end-validation` - Complete end-to-end test
 
 ### Kafka Operations
 - `tilt trigger create-topics` - Create required Kafka topics
@@ -92,12 +81,7 @@ The writer service automatically detects the database type from environment vari
 
 ## Configuration
 
-### Environment Variables
-- `DATABASE_TYPE`: Choose between `lancedb` and `postgres`
-- Database-specific variables are automatically set based on the chosen database
-
 ### Volumes
-- `lancedb_data`: LanceDB data storage
 - `postgres_data`: PostgreSQL data storage
 - `writer-logs`: Writer service logs
 
@@ -148,7 +132,6 @@ tilt up
 ```
 architecture1/
 ├── docker-compose.yml              # Base services (Kafka, Embedding)
-├── docker-compose.lancedb.yml      # LanceDB + Writer Service
 ├── docker-compose.postgres.yml     # PostgreSQL + Writer Service
 ├── Tiltfile                        # Tilt orchestration
 ├── setup_directories.sh            # Directory setup script

@@ -1,26 +1,11 @@
 # Tiltfile for Real-time LLM Ingestion Architecture
-# Uses centralized docker-compose.yml with database-specific configurations
+# Uses centralized docker-compose.yml with PostgreSQL database
 
-# Get the database type from environment variable, default to lancedb
-database_type = os.environ.get("DATABASE_TYPE", "lancedb").lower()
+print("🔄 Starting architecture with PostgreSQL database")
 
-# Validate database type
-allowed_databases = ["lancedb", "postgres"]
-if database_type not in allowed_databases:
-    fail("❌ Invalid DATABASE_TYPE. Must be one of: " + ", ".join(allowed_databases))
-
-print("🔄 Starting architecture with database: " + database_type)
-
-# Load the base docker-compose.yml
-docker_compose_config = ["docker-compose.yml"]
-
-# Add database-specific configuration
-if database_type == "postgres":
-    docker_compose_config.append("docker-compose.postgres.yml")
-    print("📊 PostgreSQL configuration loaded")
-else:
-    docker_compose_config.append("docker-compose.lacedb.yml")
-    print("📦 LanceDB configuration loaded")
+# Load the docker-compose configuration files
+docker_compose_config = ["docker-compose.yml", "docker-compose.postgres.yml"]
+print("📊 PostgreSQL configuration loaded")
 
 # Load the docker-compose configuration
 docker_compose(docker_compose_config)
@@ -63,21 +48,13 @@ local_resource(
     ignore=["*.log"]
 )
 
-# Add database-specific health checks
-if database_type == "postgres":
-    local_resource(
-        name="db-health-check",
-        cmd="curl -f http://localhost:5432 || echo 'PostgreSQL is running on port 5432'",
-        deps=[],
-        ignore=["*.log"]
-    )
-else:
-    local_resource(
-        name="db-health-check",
-        cmd="curl -f http://localhost:9090 || echo 'LanceDB is running on port 9090'",
-        deps=[],
-        ignore=["*.log"]
-    )
+# PostgreSQL health check
+local_resource(
+    name="db-health-check",
+    cmd="curl -f http://localhost:5432 || echo 'PostgreSQL is running on port 5432'",
+    deps=[],
+    ignore=["*.log"]
+)
 
 # Add validation resources to check that writes are working
 local_resource(
@@ -87,49 +64,27 @@ local_resource(
     ignore=["*.log"]
 )
 
-# Database validation resources
-if database_type == "postgres":
-    local_resource(
-        name="validate-postgres-writes",
-        cmd="cd ../pgvector && python pgvector_cli.py query-table embeddings --limit 5",
-        deps=["validate-writer-service"],
-        ignore=["*.log"]
-    )
-    
-    local_resource(
-        name="test-postgres-insert",
-        cmd="cd ../pgvector && python pgvector_cli.py insert-data embeddings '{\"id\": \"tilt-test-001\", \"text\": \"Test from Tilt\", \"embedding\": [0.1, 0.2, 0.3], \"timestamp\": \"2024-01-01T00:00:00Z\", \"source\": \"tilt-test\"}'",
-        deps=["validate-postgres-writes"],
-        ignore=["*.log"]
-    )
-    
-    local_resource(
-        name="verify-postgres-data",
-        cmd="cd ../pgvector && echo 'Verifying data in PostgreSQL...' && python pgvector_cli.py query-table embeddings --limit 10",
-        deps=["test-postgres-insert"],
-        ignore=["*.log"]
-    )
-else:
-    local_resource(
-        name="validate-lancedb-writes",
-        cmd="cd ../writer_svc && python -c \"from databases.lancedb_adapter import LanceDBAdapter; adapter = LanceDBAdapter('./lancedb_data'); adapter.connect(); result = adapter.query_table('embeddings'); print('LanceDB records found:', len(result))\"",
-        deps=["validate-writer-service"],
-        ignore=["*.log"]
-    )
-    
-    local_resource(
-        name="test-lancedb-insert",
-        cmd="cd ../writer_svc && python -c \"from databases.lancedb_adapter import LanceDBAdapter; adapter = LanceDBAdapter('./lancedb_data'); adapter.connect(); data = [{'id': 'tilt-test-001', 'text': 'Test from Tilt', 'embedding': [0.1, 0.2, 0.3], 'timestamp': '2024-01-01T00:00:00Z', 'source': 'tilt-test'}]; adapter.insert_data('embeddings', data); print('Test data inserted into LanceDB')\"",
-        deps=["validate-lancedb-writes"],
-        ignore=["*.log"]
-    )
-    
-    local_resource(
-        name="verify-lancedb-data",
-        cmd="cd ../writer_svc && echo 'Verifying data in LanceDB...' && python -c \"from databases.lancedb_adapter import LanceDBAdapter; adapter = LanceDBAdapter('./lancedb_data'); adapter.connect(); result = adapter.query_table('embeddings'); print('Total records:', len(result)); print('Sample record:', result.iloc[0] if len(result) > 0 else 'No records')\"",
-        deps=["test-lancedb-insert"],
-        ignore=["*.log"]
-    )
+# PostgreSQL validation resources
+local_resource(
+    name="validate-postgres-writes",
+    cmd="cd ../pgvector && python pgvector_cli.py query-table embeddings --limit 5",
+    deps=["validate-writer-service"],
+    ignore=["*.log"]
+)
+
+local_resource(
+    name="test-postgres-insert",
+    cmd="cd ../pgvector && python pgvector_cli.py insert-data embeddings '{\"id\": \"tilt-test-001\", \"text\": \"Test from Tilt\", \"embedding\": [0.1, 0.2, 0.3], \"timestamp\": \"2024-01-01T00:00:00Z\", \"source\": \"tilt-test\"}'",
+    deps=["validate-postgres-writes"],
+    ignore=["*.log"]
+)
+
+local_resource(
+    name="verify-postgres-data",
+    cmd="cd ../pgvector && echo 'Verifying data in PostgreSQL...' && python pgvector_cli.py query-table embeddings --limit 10",
+    deps=["test-postgres-insert"],
+    ignore=["*.log"]
+)
 
 # End-to-end validation moved to e2e_test.sh
 # Run: ./e2e_test.sh
@@ -144,9 +99,7 @@ local_resource(
 
 print("\n✨ Setup Complete!")
 print("📚 Available Commands:")
-print("   • Start services: ")
-print("     ▸ Default (LanceDB): tilt up")
-print("     ▸ PostgreSQL: DATABASE_TYPE=postgres tilt up")
+print("   • Start services: tilt up")
 print("   • Operations:")
 print("     ▸ Run specific task: tilt trigger <resource-name>")
 print("     ▸ View resources: tilt get uiresources")
@@ -156,6 +109,5 @@ print("     ▸ Services: tilt trigger health-check")
 print("     ▸ Database: tilt trigger db-health-check")
 print("   • Validation:")
 print("     ▸ Writer Service: tilt trigger validate-writer-service")
-print("     ▸ Database Writes: tilt trigger validate-" + database_type + "-writes")
+print("     ▸ PostgreSQL Writes: tilt trigger validate-postgres-writes")
 print("     ▸ Direct Writer Test: tilt trigger test-writer-direct")
-print("     ▸ End-to-End: tilt trigger end-to-end-validation")
