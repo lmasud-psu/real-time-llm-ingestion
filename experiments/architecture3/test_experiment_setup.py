@@ -10,9 +10,9 @@ import time
 from typing import Dict, List
 
 # Add dataset paths
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'datasets/cc_news'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'datasets/arxiv_abstracts'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'datasets/wikimedia_difs'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../datasets/cc_news'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../datasets/arxiv_abstracts'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../datasets/wikimedia_difs'))
 
 def test_dataset_imports():
     """Test that all dataset modules can be imported."""

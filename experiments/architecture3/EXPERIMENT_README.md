@@ -18,7 +18,7 @@ The experiment infrastructure provides:
 
 ```bash
 # Create and activate virtual environment
-cd /home/latif/doctoral/real-time-llm-ingestion/experiments
+cd /home/latif/doctoral/real-time-llm-ingestion/architecture3
 python3 -m venv experiment_venv
 source experiment_venv/bin/activate
 
@@ -258,8 +258,8 @@ The experiments use the following dataset streaming APIs:
 
 1. **Import Errors**
    ```bash
-   # Ensure you're in the experiments directory
-   cd /home/latif/doctoral/real-time-llm-ingestion/experiments
+   # Ensure you're in the architecture3 directory
+   cd /home/latif/doctoral/real-time-llm-ingestion/architecture3
    
    # Activate virtual environment
    source experiment_venv/bin/activate

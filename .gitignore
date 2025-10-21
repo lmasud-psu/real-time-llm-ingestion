@@ -7,7 +7,7 @@ env/
 ENV/
 env.bak/
 venv.bak/
-/experiments/experiment_venv/
+/experiments/architecture3/experiment_venv/
 
 # Python
 __pycache__/
@@ -31,6 +31,7 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+/architecture3/__pycache__/
 
 # PyInstaller
 *.manifest
@@ -125,6 +126,8 @@ Thumbs.db
 # Logs
 *.log
 logs/
+/architecture3/*.log
+/architecture3/logs/
 
 # Database
 *.db
@@ -144,6 +147,11 @@ node_modules/
 /experiments/final_ingestion_results_*.csv
 /experiments/ingestion_results_*.csv
 /experiments/demo_experiment_results.csv
+/architecture3/experiment_results/
+/architecture3/smoke_test_results_*.csv
+/architecture3/final_ingestion_results_*.csv
+/architecture3/ingestion_results_*.csv
+/architecture3/demo_experiment_results.csv
 
 # Dataset Files
 /experiments/datasets/*/venv/
