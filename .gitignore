@@ -7,6 +7,7 @@ env/
 ENV/
 env.bak/
 venv.bak/
+/experiments/architecture1/experiment_venv/
 /experiments/architecture3/experiment_venv/
 
 # Python
@@ -143,6 +144,12 @@ node_modules/
 
 # Experiment Results
 /experiments/experiment_results/
+/experiments/architecture1/experiment_results/
+/experiments/architecture1/smoke_test_results_*.csv
+/experiments/architecture1/experiment_results_*.csv
+/experiments/architecture3/experiment_results/
+/experiments/architecture3/smoke_test_results_*.csv
+/experiments/architecture3/experiment_results_*.csv
 /experiments/smoke_test_results_*.csv
 /experiments/final_ingestion_results_*.csv
 /experiments/ingestion_results_*.csv

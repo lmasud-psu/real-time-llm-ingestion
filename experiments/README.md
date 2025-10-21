@@ -1,6 +1,46 @@
-# Ingestion Experiments (Kafka -> Embedding -> PGVector)
+# Real-Time LLM Ingestion Experiments
 
-Run end-to-end latency experiments by sending the contents of files under `experiments/datasets/<name>` to Kafka and measuring when embeddings appear in Postgres.
+This directory contains experiment frameworks for measuring end-to-end performance across different architectures for real-time text ingestion and embedding generation.
+
+## Architecture Comparison
+
+| Feature | Architecture 1 | Architecture 3 |
+|---------|---------------|----------------|
+| **Pipeline** | Kafka → Embedding Service → Writer Service | Direct CQRS Command Handling |
+| **Topics** | `text-messages` → `embeddings` | N/A (no Kafka output) |
+| **Database** | `embeddings` table, `id` field | `text_embeddings` table, `text_message_id` field |
+| **PostgreSQL Port** | 5432 (standard) | 5434 (non-standard) |
+| **Monitoring** | Kafka topics + Database | Database only |
+| **Latency Measurement** | Full pipeline (3 stages) | Command → Database (2 stages) |
+
+## Quick Start
+
+### Architecture 1 (Kafka Pipeline)
+```bash
+cd experiments/architecture1/
+./run_experiments.sh setup    # Setup environment
+./run_experiments.sh smoke    # Test infrastructure
+./run_experiments.sh example  # Complete demonstration
+```
+
+### Architecture 3 (CQRS)
+```bash
+cd experiments/architecture3/
+./run_experiments.sh setup    # Setup environment  
+./run_experiments.sh smoke    # Test infrastructure
+./run_experiments.sh example  # Complete demonstration
+```
+
+## Framework Features
+
+Both architectures support:
+- **3 Datasets**: CC News, Arxiv abstracts, Wikipedia articles
+- **Configurable Chunking**: 0.5KB - 80KB chunk sizes
+- **Burst Patterns**: Steady rate vs. burst traffic simulation
+- **Comprehensive Metrics**: Throughput, latency, success rates
+- **CSV Output**: Compatible format for cross-architecture analysis
+
+## Legacy Single-Directory Experiments
 
 ## Setup
 

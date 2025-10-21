@@ -56,21 +56,26 @@ check_infrastructure() {
         echo "  Start Kafka: docker-compose up -d (from kafka directory)"
     fi
     
-    # Check if PostgreSQL is running
-    if nc -z localhost 5432 2>/dev/null; then
-        print_success "PostgreSQL is running on localhost:5432"
+    # Check if PostgreSQL is running (architecture3 uses port 5434)
+    if nc -z localhost 5434 2>/dev/null; then
+        print_success "PostgreSQL is running on localhost:5434"
     else
-        print_warning "PostgreSQL not detected on localhost:5432"
-        echo "  Start PostgreSQL: docker-compose up -d (from pgvector directory)"
+        print_warning "PostgreSQL not detected on localhost:5434"
+        echo "  Start PostgreSQL: docker-compose up -d (from architecture3 directory)"
     fi
     
-    # Test dataset imports
-    python3 "$SCRIPT_DIR/test_experiment_setup.py" > /dev/null 2>&1
+    # Test dataset imports (using virtual environment if available)
+    if [[ -d "$VENV_DIR" ]]; then
+        "$VENV_DIR/bin/python" "$SCRIPT_DIR/test_experiment_setup.py" > /dev/null 2>&1
+    else
+        python3 "$SCRIPT_DIR/test_experiment_setup.py" > /dev/null 2>&1
+    fi
+    
     if [[ $? -eq 0 ]]; then
         print_success "Dataset modules imported successfully"
     else
         print_error "Dataset module import failed"
-        echo "  Run: python3 test_experiment_setup.py for details"
+        echo "  Run: ./experiment_venv/bin/python test_experiment_setup.py for details"
         exit 1
     fi
 }
@@ -168,7 +173,7 @@ Parameter Descriptions:
 Environment Variables:
   KAFKA_BOOTSTRAP_SERVERS     Default: localhost:9092
   DATABASE_HOST               Default: localhost
-  DATABASE_PORT               Default: 5432
+  DATABASE_PORT               Default: 5434 (architecture3)
 
 EOF
 }
@@ -230,8 +235,8 @@ cmd_quick() {
     activate_venv
     
     # Get architecture and model from user or use defaults
-    read -p "Architecture name [architecture1]: " arch
-    arch=${arch:-architecture1}
+    read -p "Architecture name [architecture3]: " arch
+    arch=${arch:-architecture3}
     
     read -p "Model name [sentence-transformers/all-MiniLM-L6-v2]: " model  
     model=${model:-sentence-transformers/all-MiniLM-L6-v2}
@@ -256,8 +261,8 @@ cmd_performance() {
     activate_venv
     
     # Get architecture and model from user or use defaults
-    read -p "Architecture name [architecture1]: " arch
-    arch=${arch:-architecture1}
+    read -p "Architecture name [architecture3]: " arch
+    arch=${arch:-architecture3}
     
     read -p "Model name [sentence-transformers/all-MiniLM-L6-v2]: " model  
     model=${model:-sentence-transformers/all-MiniLM-L6-v2}
@@ -283,8 +288,8 @@ cmd_comprehensive() {
     activate_venv
     
     # Get architecture and model from user
-    read -p "Architecture name [architecture1]: " arch
-    arch=${arch:-architecture1}
+    read -p "Architecture name [architecture3]: " arch
+    arch=${arch:-architecture3}
     
     read -p "Model name [sentence-transformers/all-MiniLM-L6-v2]: " model  
     model=${model:-sentence-transformers/all-MiniLM-L6-v2}
@@ -318,8 +323,8 @@ cmd_burst() {
     activate_venv
     
     # Get architecture and model from user
-    read -p "Architecture name [architecture1]: " arch
-    arch=${arch:-architecture1}
+    read -p "Architecture name [architecture3]: " arch
+    arch=${arch:-architecture3}
     
     read -p "Model name [sentence-transformers/all-MiniLM-L6-v2]: " model  
     model=${model:-sentence-transformers/all-MiniLM-L6-v2}
