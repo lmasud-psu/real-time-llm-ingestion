@@ -11,7 +11,7 @@ kafka:
 
 # Hugging Face Model Configuration
 model:
-  name: "sentence-transformers/all-MiniLM-L6-v2"
+  name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
   max_length: 512
   device: "cpu"  # Use "cuda" if GPU is available
 

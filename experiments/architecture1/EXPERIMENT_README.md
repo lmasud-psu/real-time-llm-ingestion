@@ -71,15 +71,20 @@ docker-compose up -d
 
 Configure text chunking in KB (converted to ~256 tokens per KB):
 - `0.5KB` → ~128 tokens
-- `1.0KB` → ~256 tokens  
-- `5.0KB` → ~1280 tokens
+- `1KB` → ~256 tokens  
+- `2KB` → ~512 tokens
+- `5KB` → ~1280 tokens
+- `8KB` → ~2048 tokens
 - `10KB` → ~2560 tokens
+- `20KB` → ~5120 tokens
+- `40KB` → ~10240 tokens
+- `80KB` → ~20480 tokens
 
 ### Burst Patterns
 
 Test system behavior under different load patterns:
 - **Steady Rate**: Consistent message flow with small delays
-- **Burst**: Rapid message bursts followed by pauses
+- **Burst**: Rapid message bursts (5s, 15s, 30s, 45s, 60s) followed by pauses
 
 ## Command Reference
 
@@ -101,12 +106,22 @@ Test system behavior under different load patterns:
 # Custom experiment
 ./run_multi_dataset_experiments.py \
     --architecture architecture1 \
-    --model sentence-transformers/all-MiniLM-L6-v2 \
+    --model "TinyLlama/TinyLlama-1.1B-Chat-v1.0" \
     --datasets cc_news arxiv \
-    --chunk-sizes 1.0 5.0 10.0 \
-    --burst-durations 10 30 \
+    --chunk-sizes 1 2 5 10 20 \
+    --burst-durations 30 \
     --max-chunks 50 \
     --timeout 300
+
+# Most comprehensive test (all datasets, chunks, bursts)
+./run_multi_dataset_experiments.py \
+    --architecture architecture1 \
+    --model "TinyLlama/TinyLlama-1.1B-Chat-v1.0" \
+    --datasets cc_news arxiv wikipedia \
+    --chunk-sizes 0.5 1 2 4 8 16 32 64 80 \
+    --burst-durations 1 2 5 10 15 30 45 60 \
+    --max-chunks 200 \
+    --timeout 600
 
 # Smoke test only
 ./run_multi_dataset_experiments.py --smoke-test
@@ -239,7 +254,8 @@ docker-compose logs postgres
 **Performance Benchmarking:**
 ```bash
 ./run_experiments.sh performance  
-# - All datasets, 5 chunk sizes
+# - All datasets, 5 chunk sizes (1KB, 2KB, 5KB, 10KB, 20KB)
+# - Burst duration: 30s with 5s interval
 # - 30 chunks max per test
 # - ~30-45 minutes total
 ```
@@ -247,9 +263,27 @@ docker-compose logs postgres
 **Comprehensive Analysis:**
 ```bash
 ./run_experiments.sh comprehensive
-# - All datasets, 8 chunk sizes, 5 burst patterns
-# - 100 chunks max per test  
+# - All datasets, 8 chunk sizes (0.5KB to 80KB)
+# - Burst durations: 30s, 60s with 5s interval
+# - 50 chunks max per test  
 # - 1-2 hours total
+```
+
+**Maximum Scale Testing:**
+```bash
+# Most comprehensive test possible
+./run_multi_dataset_experiments.py \
+    --architecture architecture1 \
+    --model "TinyLlama/TinyLlama-1.1B-Chat-v1.0" \
+    --datasets cc_news arxiv wikipedia \
+    --chunk-sizes 0.5 1 2 4 8 16 32 64 80 \
+    --burst-durations 1 2 5 10 15 30 45 60 \
+    --max-chunks 200 \
+    --timeout 600
+# - All 3 datasets, 9 chunk sizes, 8 burst patterns
+# - 216 total experiment combinations
+# - 200 chunks max per test
+# - 4-6 hours total runtime
 ```
 
 ### Scaling Considerations

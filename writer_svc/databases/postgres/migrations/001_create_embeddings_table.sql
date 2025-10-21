@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS embeddings (
     id VARCHAR(255) PRIMARY KEY,
     text TEXT NOT NULL,
-    embedding vector(384),  -- Default embedding dimension
+    embedding vector(2048),  -- TinyLlama embedding dimension
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     source VARCHAR(255),
     metadata JSONB

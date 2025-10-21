@@ -240,8 +240,9 @@ cmd_performance() {
         --architecture "architecture1" \
         --model "$model" \
         --datasets cc_news arxiv wikipedia \
-        --chunk-sizes 0.5 1 2 5 10 \
-        --burst-durations 10 30 \
+        --chunk-sizes 1 2 5 10 20 \
+        --burst-durations 30 \
+        --burst-interval 5 \
         --max-chunks 30 \
         --timeout 300
     
@@ -277,8 +278,9 @@ cmd_comprehensive() {
         --model "$model" \
         --datasets cc_news arxiv wikipedia \
         --chunk-sizes 0.5 1 2 5 10 20 40 80 \
-        --burst-durations 5 10 30 60 120 \
-        --max-chunks 100 \
+        --burst-durations 30 60 \
+        --burst-interval 5 \
+        --max-chunks 50 \
         --timeout 300
     
     print_success "Comprehensive experiment completed!"
@@ -304,10 +306,11 @@ cmd_burst() {
         --architecture "architecture1" \
         --model "$model" \
         --datasets cc_news arxiv \
-        --chunk-sizes 2 10 \
-        --burst-durations 5 15 30 60 120 \
-        --max-chunks 50 \
-        --timeout 300
+        --chunk-sizes 2 8 20 \
+        --burst-durations 15 30 45 60 \
+        --burst-interval 3 \
+        --max-chunks 40 \
+        --timeout 240
     
     print_success "Burst experiment completed!"
 }
@@ -328,10 +331,9 @@ cmd_example() {
     print_warning "Complete Example: Testing all 3 datasets with comprehensive chunk sizes and burst patterns"
     
     echo "  • Datasets: CC News, Arxiv, Wikipedia"
-    echo "  • Chunk sizes: 1KB, 5KB, 10KB"
-    echo "  • Burst patterns: 10s, 30s durations"
-    echo "  • Max 20 chunks per test for demonstration"
-    echo "  • Estimated time: 15-20 minutes"
+    echo "  • Chunk sizes: 0.5KB, 1KB, 2KB, 5KB, 10KB, 20KB, 40KB"
+    echo "  • Burst durations: 5s, 15s, 30s, 60s"
+    echo "  • Expected runtime: 30-45 minutes"
     echo
     
     read -p "Continue with example? (y/N): " -n 1 -r
@@ -347,9 +349,10 @@ cmd_example() {
         --architecture "architecture1" \
         --model "sentence-transformers/all-MiniLM-L6-v2" \
         --datasets cc_news arxiv wikipedia \
-        --chunk-sizes 1 5 10 \
-        --burst-durations 10 30 \
-        --max-chunks 20 \
+        --chunk-sizes 0.5 1 2 5 10 20 40 \
+        --burst-durations 5 15 30 60 \
+        --burst-interval 3 \
+        --max-chunks 80 \
         --timeout 300
     
     print_success "Complete example finished!"

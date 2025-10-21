@@ -44,7 +44,7 @@ python run_multi_dataset_experiments.py
 
 # Quick test with specific parameters
 python run_multi_dataset_experiments.py \
-  --datasets cc_news arxiv \
+  --datasets cc_news arxiv wikipedia \
   --chunk-sizes 1 5 10 \
   --no-burst \
   --max-chunks 20
@@ -53,8 +53,17 @@ python run_multi_dataset_experiments.py \
 python run_multi_dataset_experiments.py \
   --datasets wikipedia \
   --chunk-sizes 2 10 \
-  --burst-durations 30 60 \
-  --burst-interval 5
+  --burst-durations 30 60
+
+# Most comprehensive test (all datasets, chunks, bursts)
+python run_multi_dataset_experiments.py \
+  --architecture architecture3 \
+  --model "sentence-transformers/all-MiniLM-L6-v2" \
+  --datasets cc_news arxiv wikipedia \
+  --chunk-sizes 0.5 1 2 4 8 16 32 64 80 \
+  --burst-durations 1 2 5 10 15 30 45 60 \
+  --max-chunks 200 \
+  --timeout 600
 ```
 
 ## 📁 Files
@@ -81,7 +90,6 @@ python run_multi_dataset_experiments.py \
 ### Burst Testing
 ```bash
 --burst-durations 30 60               # Burst for 30s, 60s (default: 30,60)
---burst-interval 5                    # 5s burst, 5s pause cycle (default: 5)
 --no-burst                            # Skip burst experiments
 ```
 
@@ -153,7 +161,6 @@ python run_multi_dataset_experiments.py \
   --datasets arxiv wikipedia \
   --chunk-sizes 2 8 \
   --burst-durations 45 \
-  --burst-interval 3 \
   --max-chunks 25
 ```
 
@@ -329,6 +336,22 @@ Based on test runs:
 ### Burst vs Regular
 - **Regular streaming**: Consistent latency, predictable performance
 - **Burst streaming**: Higher peak throughput, variable latency
+
+### Maximum Scale Testing
+For the most comprehensive evaluation, use all combinations:
+```bash
+# 216 total experiment combinations (3 datasets × 9 chunks × 8 bursts)
+# Estimated runtime: 4-6 hours
+# 200 chunks per test, 10-minute timeout per test
+python run_multi_dataset_experiments.py \
+  --architecture architecture3 \
+  --model "sentence-transformers/all-MiniLM-L6-v2" \
+  --datasets cc_news arxiv wikipedia \
+  --chunk-sizes 0.5 1 2 4 8 16 32 64 80 \
+  --burst-durations 1 2 5 10 15 30 45 60 \
+  --max-chunks 200 \
+  --timeout 600
+```
 
 ## 🎯 Integration with Pipeline
 
